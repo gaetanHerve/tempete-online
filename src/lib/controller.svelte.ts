@@ -12,7 +12,7 @@ import type { NormalMove } from '../core/chess';
 import { actor, apply, canDiscard, canSkip, cardOptions, choiceStep, clashingRules, mustAct, newGame, normalMoves, playableCards, resign, type Action, type GameState, type Throw } from '../core/game';
 import { CARD_PIECE_DELAY, play as playSound } from './sound';
 import { inCheck, kingSq, toFen, type Color, type PieceType, type Sq } from '../core/position';
-import { createRoom, joinRoom, openRoom, type NetAction, type NetEntry, type Room, type RoomMeta } from './online';
+import { createRoom, joinRoom, openRoom, type ChatMessage, type NetAction, type NetEntry, type Room, type RoomMeta } from './online';
 import type { Engine } from '../engine/engine';
 import { StockfishEngine } from '../engine/stockfish';
 
@@ -20,6 +20,8 @@ const SAVE_KEY = 'tempete2.partie';
 /** Rechargement pour une nouvelle version en pleine partie : la reprendre aussitôt (cf. main.ts). */
 export const RESUME_KEY = 'tempete2.reprendre';
 const PREFS_KEY = 'tempete2.prefs';
+/** En ligne : heure du dernier message lu, par partie (`tempete2.chat.<CODE>`). */
+const CHAT_READ_KEY = 'tempete2.chat.';
 
 export interface Reveal {
   card: string;
@@ -52,6 +54,14 @@ export interface OnlineState {
   sending: boolean;
   /** Les deux appareils ne voient plus la même partie (versions différentes ?). */
   broken: string | null;
+}
+
+/** Une ligne du chat, telle qu'affichée. */
+export interface ChatLine {
+  id: string;
+  mine: boolean;
+  t: number;
+  text: string;
 }
 
 /** Applique une action du journal en ligne (l'abandon n'est pas une action du réducteur). */
@@ -136,6 +146,11 @@ export class GameController {
   duelResult = $state<GameState['lastDuel']>(null);
   toast = $state<string | null>(null);
   online = $state<OnlineState | null>(null);
+  /** En ligne : messages du chat, combien de l'adversaire ne sont pas lus, et le dernier reçu (affiché un instant). */
+  chat = $state<ChatLine[]>([]);
+  chatOpen = $state(false);
+  unread = $state(0);
+  bubble = $state<ChatLine | null>(null);
 
   /** Case sélectionnée pour un coup normal. */
   selected = $state<Sq | null>(null);
@@ -147,6 +162,9 @@ export class GameController {
   private engine: Engine | null = null;
   private token = 0;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private bubbleTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Heure du dernier message lu (les messages plus anciens ne sont plus « nouveaux »). */
+  private readUpTo = 0;
   private revealDone: (() => void) | null = null;
   private duelDone: (() => void) | null = null;
   /** À deux : joueur qui avait l'appareil, et nombre d'entrées d'historique déjà vues par chacun. */
@@ -548,6 +566,7 @@ export class GameController {
     let ready = false;
     let opened: Room | null = null;
     const early: NetEntry[] = [];
+    const earlyChat: ChatMessage[] = [];
     let latest: { meta: RoomMeta; here: boolean } = { meta, here: false };
     const live = () => ready && this.room === opened && !!this.online;
     const { room, history } = await openRoom(code, {
@@ -566,6 +585,15 @@ export class GameController {
         latest = { ...latest, here };
         if (live()) this.online = { ...this.online!, here };
       },
+      chat: (m) => {
+        if (!ready) earlyChat.push(m);
+        else if (live()) this.hear(m);
+      },
+      unchat: (id) => {
+        const i = earlyChat.findIndex((m) => m.id === id);
+        if (i >= 0) earlyChat.splice(i, 1);
+        if (live()) this.chat = this.chat.filter((l) => l.id !== id);
+      },
     });
     opened = room;
     // la partie est recalculée en rejouant le journal depuis la graine
@@ -579,6 +607,10 @@ export class GameController {
     this.reset(g);
     this.online = { code, waiting: !latest.meta.guest, here: latest.here, sending: false, broken: null };
     this.inbox = early;
+    // le chat déjà échangé : n'est « non lu » que ce qui est arrivé depuis la dernière lecture
+    this.readUpTo = storage<number>(CHAT_READ_KEY + code) ?? 0;
+    this.chat = earlyChat.map((m) => this.line(m));
+    this.unread = this.chat.filter((l) => !l.mine && l.t > this.readUpTo).length;
     ready = true;
     if (meta.build !== BUILD) this.notify('Attention : l’adversaire n’a peut-être pas la même version de l’appli.');
     this.save();
@@ -592,6 +624,63 @@ export class GameController {
     this.inbox = [];
     this.retry = null;
     this.clearWaiters = [];
+    this.chat = [];
+    this.chatOpen = false;
+    this.unread = 0;
+    this.bubble = null;
+  }
+
+  // ---------- chat (en ligne) ----------
+
+  private line(m: ChatMessage): ChatLine {
+    return { id: m.id, mine: m.by === this.room?.uid, t: m.t, text: m.text };
+  }
+
+  /** Un message vient d'arriver. */
+  private hear(m: ChatMessage) {
+    if (this.chat.some((l) => l.id === m.id)) return;
+    const l = this.line(m);
+    this.chat = [...this.chat, l];
+    // (les messages déjà échangés peuvent arriver après l'ouverture de la partie)
+    if (l.mine || l.t <= this.readUpTo) return;
+    if (this.chatOpen) return this.markRead();
+    this.unread++;
+    this.bubble = l;
+    clearTimeout(this.bubbleTimer);
+    this.bubbleTimer = setTimeout(() => (this.bubble = null), 5000);
+  }
+
+  private markRead() {
+    this.unread = 0;
+    const last = this.chat.at(-1);
+    if (!last || !this.online || last.t <= this.readUpTo) return;
+    this.readUpTo = last.t;
+    store(CHAT_READ_KEY + this.online.code, last.t);
+  }
+
+  openChat() {
+    this.chatOpen = true;
+    this.bubble = null;
+    this.markRead();
+  }
+
+  closeChat() {
+    this.chatOpen = false;
+  }
+
+  /** Envoie un message à l'adversaire ; vrai s'il est parti. */
+  async say(text: string): Promise<boolean> {
+    const msg = text.trim();
+    const room = this.room;
+    if (!msg || !room) return false;
+    try {
+      await room.say(msg);
+      return true;
+    } catch (e) {
+      console.error(e);
+      this.notify('Message non envoyé : vérifiez la connexion.');
+      return false;
+    }
   }
 
   /** Envoie une action au journal ; elle ne s'applique qu'une fois revenue du serveur, chez les deux joueurs. */

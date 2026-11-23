@@ -31,6 +31,16 @@
                 "$other": { ".validate": false }
               }
             },
+            "chat": {
+              "$id": {
+                ".write": "auth != null && !data.exists() && (data.parent().parent().child('meta/host').val() === auth.uid || data.parent().parent().child('meta/guest').val() === auth.uid)",
+                ".validate": "newData.hasChildren(['by', 't', 'text'])",
+                "by": { ".validate": "newData.val() === auth.uid" },
+                "t": { ".validate": "newData.val() === now" },
+                "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+                "$other": { ".validate": false }
+              }
+            },
             "presence": {
               "$uid": {
                 ".write": "auth != null && auth.uid === $uid",

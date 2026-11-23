@@ -126,6 +126,9 @@ après une veille ou un rechargement. Côté contrôleur, l'adversaire prend la 
   de l'appli), la partie s'interrompt au lieu de diverger.
 - Les parties sont rangées sous un chemin dérivé de la clé du coffre : sans le mot de passe, on
   ne peut ni les trouver ni les lister. Seuls les deux joueurs d'une partie peuvent y écrire.
+- Un chat accompagne chaque partie (`rooms/<CODE>/chat`) : messages de 200 caractères au plus,
+  envoyés par l'un des deux joueurs, jamais modifiés. Les 100 derniers reviennent à la reprise ;
+  l'heure du dernier message lu est gardée sur l'appareil pour ne compter que les non-lus.
 - Les règles d'accès sont dans `database.rules.json`, à recopier dans la console Firebase
   (Realtime Database → Règles) à chaque modification. La config web (`src/lib/firebase-config.ts`)
   n'a rien de secret.

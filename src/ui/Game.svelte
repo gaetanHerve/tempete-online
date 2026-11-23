@@ -7,6 +7,7 @@
   import { cardImage } from '../lib/vault';
   import Board from './Board.svelte';
   import Card from './Card.svelte';
+  import Chat from './Chat.svelte';
   import Sheet from './Sheet.svelte';
 
   interface Props {
@@ -206,6 +207,12 @@
           <span>{level.label}{c.thinking ? ' · réfléchit…' : ''}</span>
         {/if}
       </div>
+      {#if c.bubble}
+        <!-- dernier message de l'adversaire, un instant : le toucher ouvre le chat -->
+        {#key c.bubble.id}
+          <button type="button" class="bubble" onclick={() => c.openChat()} transition:fly={{ y: -8, duration: 200 }}>{c.bubble.text}</button>
+        {/key}
+      {/if}
       <div class="backs" aria-label="{g.hands[c.bot].length} cartes en main">
         {#each g.hands[c.bot] as _, i (i)}
           <div class="mini-back" style:--i={i} style:background-image="url({cardImage('card-back')})"></div>
@@ -217,6 +224,12 @@
         {#key g.discard.length}
           <img src={cardImage(topDiscard)} alt="" draggable="false" in:fly={{ y: -16, duration: 250 }} />
         {/key}
+      </button>
+    {/if}
+    {#if online}
+      <button type="button" class="icon chat-btn" onclick={() => c.openChat()} aria-label={c.unread ? `Chat, ${c.unread} message${c.unread > 1 ? 's' : ''} non lu${c.unread > 1 ? 's' : ''}` : 'Chat'}>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M4 5h16v11H10l-4 4v-4H4z" /></svg>
+        {#if c.unread}<span class="badge">{c.unread > 9 ? '9+' : c.unread}</span>{/if}
       </button>
     {/if}
     <button type="button" class="icon log-btn" onclick={() => (showLog = true)} aria-label="Historique">
@@ -547,6 +560,12 @@
   </Sheet>
 {/if}
 
+{#if c.chatOpen}
+  <Sheet onclose={() => c.closeChat()} label="Chat">
+    <Chat />
+  </Sheet>
+{/if}
+
 {#if zoom}
   <Sheet center onclose={() => (zoom = null)} label="Carte">
     <Card id={zoom} big />
@@ -636,6 +655,50 @@
     flex: none;
     display: grid;
     place-items: center;
+  }
+  .opponent {
+    position: relative;
+  }
+  .bubble {
+    position: absolute;
+    z-index: 6;
+    top: calc(100% + 8px);
+    left: 10px;
+    max-width: min(260px, 80vw);
+    padding: 7px 11px;
+    border: 2px solid var(--ink);
+    border-radius: 4px 14px 14px 14px;
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 2px 2px 0 var(--shadow);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .chat-btn {
+    position: relative;
+  }
+  .badge {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
   }
   .presence {
     display: inline-block;
@@ -1152,7 +1215,7 @@
       flex: none;
       width: min(320px, 26vw);
     }
-    header > .icon:not(.log-btn) {
+    header > .icon:not(.log-btn):not(.chat-btn) {
       margin-left: auto;
     }
     .opponent .backs,

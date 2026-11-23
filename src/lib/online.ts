@@ -7,6 +7,7 @@
 //   v1/<espace>/rooms/<CODE>/meta          { host, hostColor, seed, created, build, guest? }
 //   v1/<espace>/rooms/<CODE>/actions/00000 { by, a, fen }   (a : action en JSON, fen : position après)
 //   v1/<espace>/rooms/<CODE>/presence/<uid> true            (retiré à la déconnexion)
+//   v1/<espace>/rooms/<CODE>/chat/<id>     { by, t, text }    (messages des joueurs)
 //
 // L'espace est dérivé de la clé du coffre : sans le mot de passe, on ne peut ni trouver ni lister
 // les parties (les règles interdisent la lecture au-dessus d'une partie). Chaque entrée du journal
@@ -40,6 +41,18 @@ export interface RoomMeta {
   build: string;
   guest?: string;
 }
+
+/** Un message du chat de la partie. */
+export interface ChatMessage {
+  id: string;
+  by: string;
+  /** Heure d'envoi (ms), donnée par le serveur. */
+  t: number;
+  text: string;
+}
+
+/** Longueur maximale d'un message (vérifiée aussi par les règles du serveur). */
+export const CHAT_MAX = 200;
 
 /** Erreur à montrer telle quelle au joueur. */
 export class OnlineError extends Error {}
@@ -143,6 +156,10 @@ export interface RoomHandlers {
   meta: (meta: RoomMeta) => void;
   /** L'adversaire a l'appli ouverte sur cette partie. */
   presence: (opponentHere: boolean) => void;
+  /** Message du chat : ceux déjà envoyés à l'ouverture, puis chaque nouveau, dans l'ordre. */
+  chat: (message: ChatMessage) => void;
+  /** Message retiré (envoi refusé par le serveur). */
+  unchat: (id: string) => void;
 }
 
 export interface Room {
@@ -150,6 +167,8 @@ export interface Room {
   uid: string;
   /** Écrit l'entrée `index` du journal ; faux si elle était déjà prise (écriture simultanée). */
   send(index: number, entry: NetEntry): Promise<boolean>;
+  /** Envoie un message au chat de la partie. */
+  say(text: string): Promise<void>;
   close(): void;
 }
 
@@ -185,6 +204,16 @@ export async function openRoom(code: string, on: RoomHandlers): Promise<{ room: 
     );
     offs.push(fb.onValue(fb.ref(db, `${root}/meta`), (s) => s.exists() && on.meta(s.val())));
 
+    const chat = fb.query(fb.ref(db, `${root}/chat`), fb.orderByKey(), fb.limitToLast(100));
+    offs.push(
+      fb.onChildAdded(chat, (child) => {
+        const v = child.val() as { by?: unknown; t?: unknown; text?: unknown } | null;
+        if (v && typeof v.by === 'string' && typeof v.text === 'string') on.chat({ id: child.key!, by: v.by, t: typeof v.t === 'number' ? v.t : Date.now(), text: v.text });
+      }),
+    );
+    // (un message s'affiche dès l'envoi : s'il est refusé par le serveur, il disparaît)
+    offs.push(fb.onChildRemoved(chat, (child) => on.unchat(child.key!)));
+
     const mine = fb.ref(db, `${root}/presence/${uid}`);
     // (re)déclarée à chaque reconnexion : après une coupure, le serveur a retiré la présence
     offs.push(
@@ -202,6 +231,9 @@ export async function openRoom(code: string, on: RoomHandlers): Promise<{ room: 
         const value = { by: entry.by, a: JSON.stringify(entry.action), fen: entry.fen };
         const res = await fb.runTransaction(fb.ref(db, `${root}/actions/${pad(index)}`), (cur) => (cur === null ? value : undefined), { applyLocally: false });
         return res.committed;
+      },
+      async say(text) {
+        await fb.push(fb.ref(db, `${root}/chat`), { by: uid, t: fb.serverTimestamp(), text: text.slice(0, CHAT_MAX) });
       },
       close() {
         for (const off of offs) off();
