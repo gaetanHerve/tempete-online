@@ -374,6 +374,7 @@ export function apply(prev: GameState, action: Action): GameState {
     return structuredClone(prev.undo!);
   }
   const state = applyAction(prev, action);
+  followSleepers(prev.pos.board, state);
   // seul un coup qui laisse la main à son auteur peut être repris ; toute autre action l'empêche
   state.undo = action.type === 'move' && state.phase === 'after' && state.active === prev.active ? { ...prev, undo: null } : null;
   refreshRules(state);
@@ -774,6 +775,22 @@ function endTurn(state: GameState) {
     state.log.push({ color: state.active, card: 'doubleJeu', text: `${CARD_BY_ID.doubleJeu.title} prend fin : chacun retrouve sa couleur`, notice: true });
   }
   checkGameOver(state);
+}
+
+/**
+ * Planque : la pièce endormie reste endormie si une carte la déplace (Raton laveur, Remorque…).
+ * On la retrouve sur la case où une pièce identique vient d'apparaître ; si elle n'est plus nulle
+ * part (prise, transformée), refreshRules met fin à la règle.
+ */
+function followSleepers(before: (Piece | null)[], state: GameState) {
+  const b = state.pos.board;
+  const same = (p: Piece | null | undefined, q: Piece) => !!p && p.c === q.c && p.t === q.t;
+  for (const r of state.rules ?? []) {
+    if (r.card !== 'planque' || r.sq === undefined || !r.piece) continue;
+    if (same(b[r.sq], r.piece) || !same(before[r.sq], r.piece)) continue;
+    const arrived = b.findIndex((p, s) => same(p, r.piece!) && !same(before[s], r.piece!));
+    if (arrived >= 0) r.sq = arrived;
+  }
 }
 
 /** Fin des règles durables : échec au Roi, pièce endormie disparue, plus de prise possible… */

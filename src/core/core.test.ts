@@ -649,6 +649,26 @@ describe('règles temporaires', () => {
     expect(g.rules).toEqual([]);
   });
 
+  it('Planque : la pièce endormie reste endormie si une carte la déplace', () => {
+    let g = newGame(19);
+    g.pos = fromFen('4k3/8/8/8/8/8/3P4/1N2K3 w - - 0 1');
+    g.active = 'w';
+    g.hands.w = ['ratonLaveur'];
+    g.hands.b = [];
+    g.rules = [{ card: 'planque', owner: 'b', sq: S('b1'), piece: { c: 'w', t: 'n' } }];
+    g = apply(g, { type: 'card', card: 'ratonLaveur', path: [S('d2'), S('b1')] });
+    expect(g.pos.board[S('d2')]).toMatchObject({ c: 'w', t: 'n' });
+    expect(g.rules).toMatchObject([{ card: 'planque', sq: S('d2') }]);
+    expect(g.log.some((e) => e.text.includes('prend fin'))).toBe(false);
+    // (la carte remplace le coup : c'est aux Noirs) toujours endormi sur sa nouvelle case
+    expect(g.active).toBe('b');
+    g = mv(g, 'e8', 'f8');
+    if (g.phase === 'reaction') g = apply(g, { type: 'pass' }); // (les Blancs ont repioché)
+    g = apply(g, { type: 'endTurn' });
+    expect(g.rules).toMatchObject([{ card: 'planque', sq: S('d2') }]);
+    expect(normalMoves(g).some((m) => m.from === S('d2'))).toBe(false);
+  });
+
   it('Annuler son coup : seulement juste après l’avoir joué', () => {
     const g = newGame(19);
     g.pos = fromFen('r3k3/8/8/8/8/8/8/R3K3 w - - 0 1');
