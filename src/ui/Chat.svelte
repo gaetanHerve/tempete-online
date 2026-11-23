@@ -5,6 +5,12 @@
   import { controller as c } from '../lib/controller.svelte';
   import { CHAT_MAX } from '../lib/online';
 
+  interface Props {
+    /** Grand écran : affiché en permanence à côté de l'échiquier, plutôt que dans un panneau. */
+    docked?: boolean;
+  }
+  let { docked = false }: Props = $props();
+
   const QUICK = ['Bien joué !', 'Aïe…', 'Je réfléchis', 'Bien vu', 'Oups', 'Bonne partie !', '👍', '😄', '😮', '😅', '🔥', '🤝'];
 
   let draft = $state('');
@@ -28,10 +34,14 @@
   const time = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 </script>
 
-<h2 class="sheet-title">Chat</h2>
+{#if docked}
+  <span class="label">Chat</span>
+{:else}
+  <h2 class="sheet-title">Chat</h2>
+{/if}
 
 {#if c.chat.length}
-  <ol class="messages" bind:this={list}>
+  <ol class="messages" class:docked bind:this={list}>
     {#each c.chat as m (m.id)}
       <li class:mine={m.mine}>
         <span class="text">{m.text}</span>
@@ -43,7 +53,7 @@
   <p class="empty">Aucun message pour l'instant. Dites bonjour !</p>
 {/if}
 
-<div class="quick" aria-label="Phrases rapides">
+<div class="quick" class:docked aria-label="Phrases rapides">
   {#each QUICK as q (q)}
     <button type="button" class="chip" class:emoji={!/\p{L}/u.test(q)} disabled={sending} onclick={() => send(q)}>{q}</button>
   {/each}
@@ -61,6 +71,46 @@
 </form>
 
 <style>
+  .sheet-title {
+    margin: 0 0 12px;
+    font-family: var(--font-comic);
+    font-size: 24px;
+    font-weight: 400;
+  }
+  .label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .messages.docked {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+  }
+  .docked .text {
+    background: var(--paper);
+    font-size: 14px;
+  }
+  .docked .mine .text {
+    background: var(--mustard);
+  }
+  .quick.docked {
+    margin-top: auto;
+    padding-top: 8px;
+    gap: 4px;
+  }
+  .quick.docked .chip {
+    padding: 3px 8px;
+    font-size: 13px;
+  }
+  .quick.docked .chip.emoji {
+    padding: 2px 6px;
+    font-size: 15px;
+  }
   .messages {
     list-style: none;
     margin: 0 0 12px;

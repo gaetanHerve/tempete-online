@@ -153,7 +153,24 @@ function capture(ac: AudioContext, t: number) {
   knock(ac, t + 0.06, 0.45);
 }
 
-export type SoundKind = 'move' | 'capture' | 'card';
+/** Note de clochette : un sinus et deux harmoniques qui s'éteignent doucement. */
+function bell(ac: AudioContext, t: number, freq: number, peak: number) {
+  const dest = output(ac);
+  for (const [mult, gain, decay] of [
+    [1, 1, 0.9],
+    [2.76, 0.18, 0.35],
+    [5.4, 0.06, 0.15],
+  ]) {
+    const o = ac.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq * mult;
+    o.connect(envelope(ac, dest, t, peak * gain, decay, 0.004));
+    o.start(t);
+    o.stop(t + decay + 0.05);
+  }
+}
+
+export type SoundKind = 'move' | 'capture' | 'card' | 'turn';
 
 /** Délai entre le froissement d'une carte et le son de la pièce qu'elle déplace. */
 export const CARD_PIECE_DELAY = 0.14;
@@ -171,6 +188,11 @@ export function play(kind: SoundKind, delay = 0) {
 function render(ctx: AudioContext, kind: SoundKind, delay: number) {
   const t = ctx.currentTime + 0.01 + delay;
   if (kind === 'move') knock(ctx, t);
+  else if (kind === 'turn') {
+    // « à vous » : deux notes de clochette, montantes
+    bell(ctx, t, 784, 0.16);
+    bell(ctx, t + 0.13, 1047, 0.14);
+  }
   else if (kind === 'capture') capture(ctx, t);
   else {
     // carte : froissement de carton qu'on abat sur la table

@@ -149,6 +149,8 @@ export class GameController {
   /** En ligne : messages du chat, combien de l'adversaire ne sont pas lus, et le dernier reçu (affiché un instant). */
   chat = $state<ChatLine[]>([]);
   chatOpen = $state(false);
+  /** Grand écran : le chat est affiché en permanence à côté de l'échiquier. */
+  chatDocked = $state(false);
   unread = $state(0);
   bubble = $state<ChatLine | null>(null);
 
@@ -327,6 +329,11 @@ export class GameController {
         const moved = next.pos.board.some((p, i) => p?.c !== prev.pos.board[i]?.c || p?.t !== prev.pos.board[i]?.t);
         if (moved) playSound(piece, CARD_PIECE_DELAY);
       } else playSound(piece);
+    }
+    // en ligne : un carillon quand la main revient au joueur (son tour, ou une réaction possible)
+    if (this.mode === 'online' && prev && this.prefs.sound !== false && next.phase !== 'over' && next.phase !== 'duel') {
+      const mine = (g: GameState) => g.phase !== 'over' && g.phase !== 'duel' && actor(g) === (g.swap ? (this.human === 'w' ? 'b' : 'w') : this.human); // (Double jeu : couleurs échangées)
+      if (!mine(prev) && mine(next)) playSound('turn', 0.25);
     }
     // événements à signaler (fin d'une règle, Voyance qui se réalise…)
     if (prev) for (const e of next.log.slice(prev.log.length)) if (e.notice) this.notify(e.text);
@@ -643,7 +650,7 @@ export class GameController {
     this.chat = [...this.chat, l];
     // (les messages déjà échangés peuvent arriver après l'ouverture de la partie)
     if (l.mine || l.t <= this.readUpTo) return;
-    if (this.chatOpen) return this.markRead();
+    if (this.chatOpen || this.chatDocked) return this.markRead();
     this.unread++;
     this.bubble = l;
     clearTimeout(this.bubbleTimer);
@@ -666,6 +673,15 @@ export class GameController {
 
   closeChat() {
     this.chatOpen = false;
+  }
+
+  /** Le chat s'affiche (ou plus) à côté de l'échiquier, selon la taille de l'écran. */
+  dockChat(docked: boolean) {
+    this.chatDocked = docked;
+    if (!docked) return;
+    this.chatOpen = false;
+    this.bubble = null;
+    this.markRead();
   }
 
   /** Envoie un message à l'adversaire ; vrai s'il est parti. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { fade, fly, scale } from 'svelte/transition';
   import { CARD_BY_ID, DIRECTION_STEP, STEP_HINTS } from '../core/cards';
   import { PIECE_NAME, fromFen, sqName, type PieceType, type Sq } from '../core/position';
@@ -29,6 +30,20 @@
   let showLog = $state(false);
   let showMenu = $state(false);
   let zoom = $state<string | null>(null);
+
+  // grand écran en paysage (même requête que la mise en page « table de jeu » plus bas)
+  const WIDE = '(min-width: 1000px) and (min-height: 600px) and (min-aspect-ratio: 5/4)';
+  let wide = $state(matchMedia(WIDE).matches);
+  $effect(() => {
+    const mq = matchMedia(WIDE);
+    const on = () => (wide = mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  });
+  $effect(() => {
+    const docked = online && wide;
+    untrack(() => c.dockChat(docked));
+  });
 
   // ----- plateau affiché : position réelle, ou aperçu d'une carte en cours -----
   // carte en suspens (on peut encore l'annuler) : on montre ce qu'elle ferait, aux deux joueurs
@@ -323,6 +338,7 @@
     {/if}
   </div>
 
+  <div class="right">
   <div class="bar" class:card-mode={!!sel || !!rv}>
     {#if rv}
       <div class="sel-head">
@@ -375,6 +391,13 @@
           <span class="who-dot {lastLog.color}"></span>{lastLog.text}
         </button>
       {/if}
+    {/if}
+  </div>
+    <!-- grand écran, en ligne : le chat reste affiché sous la barre d'état -->
+    {#if online && wide}
+      <div class="side-chat" aria-label="Chat">
+        <Chat docked />
+      </div>
     {/if}
   </div>
   </div>
@@ -560,7 +583,7 @@
   </Sheet>
 {/if}
 
-{#if c.chatOpen}
+{#if c.chatOpen && !c.chatDocked}
   <Sheet onclose={() => c.closeChat()} label="Chat">
     <Chat />
   </Sheet>
@@ -1182,7 +1205,8 @@
     height: 100%;
     object-fit: cover;
   }
-  .left {
+  .left,
+  .right {
     display: contents;
   }
 
@@ -1217,6 +1241,11 @@
     }
     header > .icon:not(.log-btn):not(.chat-btn) {
       margin-left: auto;
+    }
+    /* le chat est déjà affiché à droite de l'échiquier */
+    .chat-btn,
+    .bubble {
+      display: none;
     }
     .opponent .backs,
     .discard-mini {
@@ -1329,13 +1358,33 @@
       text-transform: uppercase;
       color: var(--muted);
     }
-    .bar {
+    .right {
       grid-column: 3;
       grid-row: 1;
       justify-self: start;
+      align-self: stretch;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+      width: min(100%, 320px);
+      min-height: 0;
+    }
+    .side-chat {
+      display: flex;
+      flex-direction: column;
+      flex: 0 1 460px;
+      min-height: 0;
+      padding: 12px;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: var(--card);
+      box-shadow: 3px 3px 0 var(--shadow);
+    }
+    .bar {
+      flex: none;
       flex-direction: column;
       align-items: stretch;
-      width: min(100%, 320px);
       padding: 14px;
       border-radius: 14px;
       box-shadow: 3px 3px 0 var(--shadow);
