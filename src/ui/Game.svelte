@@ -3,7 +3,7 @@
   import { fade, fly, scale } from 'svelte/transition';
   import { CARD_BY_ID, DIRECTION_STEP, STEP_HINTS } from '../core/cards';
   import { PIECE_NAME, fromFen, sqName, type PieceType, type Sq } from '../core/position';
-  import { BEATS, DUEL_WINS, THROWS, actor, canReplay, canSkip, mustAct, type LogEntry, type Rule, type Throw } from '../core/game';
+  import { BEATS, DUEL_WINS, THROWS, actor, canReplay, canSkip, canUndo, mustAct, type LogEntry, type Rule, type Throw } from '../core/game';
   import { THEME_LABEL, controller as c } from '../lib/controller.svelte';
   import { cardImage } from '../lib/vault';
   import Board from './Board.svelte';
@@ -377,11 +377,16 @@
         <span class="turn-dot" class:mine={actor(g) === c.color && g.phase !== 'over'}></span>
         <span>{status}</span>
       </div>
-      {#if canReplay(g) && c.myTurn && !sel}
-        <button type="button" class="btn ghost small" onclick={() => c.replay()}>Je passe : rejouer</button>
-        <button type="button" class="btn primary small" onclick={() => c.endTurn()}>Terminer mon tour</button>
-      {:else if g.phase === 'after' && g.active === c.color}
-        <button type="button" class="btn primary small" onclick={() => c.endTurn()}>Terminer mon tour</button>
+      {#if g.phase === 'after' && g.active === c.color}
+        <div class="turn-btns">
+          {#if canUndo(g) && c.myTurn}
+            <button type="button" class="btn ghost small" onclick={() => c.undo()} title="Reprendre le coup que vous venez de jouer">Annuler mon coup</button>
+          {/if}
+          {#if canReplay(g) && c.myTurn}
+            <button type="button" class="btn ghost small" onclick={() => c.replay()}>Je passe : rejouer</button>
+          {/if}
+          <button type="button" class="btn primary small" onclick={() => c.endTurn()}>Terminer mon tour</button>
+        </div>
       {:else if canSkip(g) && c.myTurn}
         <button type="button" class="btn primary small" onclick={() => c.skip()}>Passer mon tour</button>
       {:else if (g.phase === 'reaction' || g.phase === 'counter') && actor(g) === c.color && !c.reveal}
@@ -813,6 +818,12 @@
     flex-direction: column;
     align-items: stretch;
     background: var(--mustard-soft);
+  }
+  .turn-btns {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
   }
   .status {
     display: flex;
@@ -1388,6 +1399,12 @@
       padding: 14px;
       border-radius: 14px;
       box-shadow: 3px 3px 0 var(--shadow);
+    }
+    .turn-btns {
+      justify-content: stretch;
+    }
+    .turn-btns .btn {
+      flex: 1 1 auto;
     }
     .bar .last {
       white-space: normal;

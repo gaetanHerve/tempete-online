@@ -128,6 +128,8 @@ export interface GameState {
   result: { winner: Color | null; reason: string } | null;
   rng: number;
   ply: number;
+  /** L'état d'avant le coup qui vient d'être joué, tant qu'il peut encore être annulé. */
+  undo?: GameState | null;
 }
 
 export type Action =
@@ -145,6 +147,8 @@ export type Action =
   | { type: 'skip' }
   /** Je passe (en réserve) : rejouer un coup. */
   | { type: 'replay' }
+  /** Reprendre son coup, juste après l'avoir joué (rien d'autre depuis). */
+  | { type: 'undo' }
   | { type: 'endTurn' };
 
 // ---------- aléa déterministe (mulberry32) ----------
@@ -351,6 +355,11 @@ const provokes = (state: GameState, r: Rule) => r.card === 'provocation' && targ
 const rule = (state: GameState, card: string) => (state.rules ?? []).find((r) => r.card === card);
 
 /** Provocation : le joueur actif peut passer son tour plutôt que de prendre. */
+/** Le coup qui vient d'être joué peut-il être repris ? (rien d'autre ne s'est passé depuis) */
+export function canUndo(state: GameState): boolean {
+  return state.phase === 'after' && !!state.undo;
+}
+
 export function canSkip(state: GameState): boolean {
   return state.phase === 'main' && (state.rules ?? []).some((r) => provokes(state, r));
 }
@@ -360,7 +369,13 @@ export function canSkip(state: GameState): boolean {
 export class IllegalAction extends Error {}
 
 export function apply(prev: GameState, action: Action): GameState {
+  if (action.type === 'undo') {
+    if (!canUndo(prev)) throw new IllegalAction('Plus rien à reprendre');
+    return structuredClone(prev.undo!);
+  }
   const state = applyAction(prev, action);
+  // seul un coup qui laisse la main à son auteur peut être repris ; toute autre action l'empêche
+  state.undo = action.type === 'move' && state.phase === 'after' && state.active === prev.active ? { ...prev, undo: null } : null;
   refreshRules(state);
   const added = state.log.slice(prev.log.length);
   if (prev.swap) for (const e of added) e.swapped = true;
@@ -462,6 +477,9 @@ function applyAction(prev: GameState, action: Action): GameState {
       // toujours en phase « après » : le joueur termine ensuite son tour
       return state;
     }
+
+    case 'undo':
+      throw new IllegalAction('Plus rien à reprendre'); // (traité par apply)
 
     case 'replay': {
       if (!canReplay(state)) throw new IllegalAction('Rien à rejouer');

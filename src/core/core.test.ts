@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CARD_BY_ID, CARDS, DECK_CARDS, isDead } from './cards';
-import { actor, apply, canDiscard, canReplay, canSkip, cardOptions, choiceStep, mustAct, newGame, normalMoves, playableCards, type GameState, type Throw } from './game';
+import { actor, apply, canDiscard, canReplay, canSkip, canUndo, cardOptions, choiceStep, mustAct, newGame, normalMoves, playableCards, type GameState, type Throw } from './game';
 import { engineFen, fromFen, isSane, parseSq, toFen } from './position';
 import { legalMoves } from './chess';
 
@@ -647,6 +647,30 @@ describe('règles temporaires', () => {
     g = apply(g, { type: 'endTurn' });
     g = mv(g, 'a6', 'a8'); // échec
     expect(g.rules).toEqual([]);
+  });
+
+  it('Annuler son coup : seulement juste après l’avoir joué', () => {
+    const g = newGame(19);
+    g.pos = fromFen('r3k3/8/8/8/8/8/8/R3K3 w - - 0 1');
+    g.active = 'w';
+    g.hands.w = ['provocation'];
+    g.hands.b = [];
+    expect(canUndo(g)).toBe(false);
+    const m = mv(g, 'e1', 'f2');
+    expect(m.phase).toBe('after');
+    expect(canUndo(m)).toBe(true);
+    const u = apply(m, { type: 'undo' });
+    expect(u.phase).toBe('main');
+    expect(u.pos.board[S('e1')]?.t).toBe('k');
+    expect(u.log).toEqual(g.log);
+    expect(canUndo(u)).toBe(false);
+    // on peut ensuite jouer autre chose
+    expect(mv(u, 'e1', 'd1').pos.board[S('d1')]?.t).toBe('k');
+    // une carte jouée, ou le tour terminé : trop tard
+    const c = apply(m, { type: 'card', card: 'provocation', path: [] });
+    expect(canUndo(c)).toBe(false);
+    expect(() => apply(c, { type: 'undo' })).toThrow();
+    expect(canUndo(apply(m, { type: 'endTurn' }))).toBe(false);
   });
 
   it('Voyance : si l’adversaire joue la pièce désignée, son tour est perdu', () => {

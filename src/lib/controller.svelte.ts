@@ -419,6 +419,7 @@ export class GameController {
     if (action.type === 'discard') this.notify(`${who} défausse « ${CARD_BY_ID[action.card].title} »`);
     if (action.type === 'choose') this.notify(`${who} : ${next.log[next.log.length - 1].text.replace(/^[^:]+:\s*/, '')}`);
     if (action.type === 'resign') this.notify(`${who} abandonne`);
+    if (action.type === 'undo') this.notify(`${who} reprend son coup`);
     if (action.type !== 'card') return null;
     const ends = clashingRules(prev, action.card);
     // carte en suspens (le joueur peut l'annuler) : pas encore dans l'historique
@@ -515,6 +516,11 @@ export class GameController {
 
   endTurn() {
     this.act({ type: 'endTurn' });
+  }
+
+  /** Reprendre le coup qu'on vient de jouer (tant qu'on n'a rien fait d'autre). */
+  undo() {
+    this.act({ type: 'undo' });
   }
 
   /** Je passe (en réserve) : rejouer un coup. */
