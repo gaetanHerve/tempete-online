@@ -30,8 +30,8 @@
   let zoom = $state<string | null>(null);
 
   // ----- plateau affiché : position réelle, ou aperçu d'une carte en cours -----
-  // carte adverse en suspens que je peux annuler : on montre ce qu'elle ferait
-  const pendingShown = $derived(g.phase === 'counter' && g.pending && actor(g) === c.color && !sel ? g.pending : null);
+  // carte en suspens (on peut encore l'annuler) : on montre ce qu'elle ferait, aux deux joueurs
+  const pendingShown = $derived(g.phase === 'counter' && g.pending && !sel ? g.pending : null);
   // Ruade : le coup adverse est annulé, on choisit sur la position d'avant
   const before = $derived(sel && CARD_BY_ID[sel.card].showsBefore && g.phase === 'reaction' ? (g.reactTo?.before.board ?? null) : null);
   const shown = $derived(sel?.chosen ? sel.chosen.result.board : (before ?? pendingShown?.option.result.board ?? g.pos.board));
@@ -62,11 +62,16 @@
     if (g.phase === 'duel') return 'Duel !';
     if (g.phase === 'choice' && !c.thinking && actor(g) !== c.color) return `${CARD_BY_ID[g.choice!.card].title} : au choix de ${c.opponent}…`;
     if (c.thinking) return "L'ordinateur réfléchit…";
-    if (g.phase === 'reaction' && actor(g) === c.color) return 'Réagir au coup adverse ?';
-    if (g.phase === 'counter' && g.pending && actor(g) === c.color) {
-      const target = g.pending.counters.at(-1)?.card ?? g.pending.card;
-      return `Annuler « ${CARD_BY_ID[target].title} » ?`;
+    const target = g.phase === 'counter' && g.pending ? (g.pending.counters.at(-1)?.card ?? g.pending.card) : null;
+    if (actor(g) !== c.color) {
+      // c'est à l'adversaire de décider, même pendant mon tour (réaction à mon coup, annulation de ma carte)
+      const who = c.opponent.charAt(0).toUpperCase() + c.opponent.slice(1);
+      if (g.phase === 'reaction') return `${who} peut réagir à votre coup…`;
+      if (target) return `${who} peut annuler « ${CARD_BY_ID[target].title} »…`;
+      return `Au tour de ${c.opponent}`;
     }
+    if (g.phase === 'reaction') return 'Réagir au coup adverse ?';
+    if (target) return `Annuler « ${CARD_BY_ID[target].title} » ?`;
     if (g.active !== c.color) return `Au tour de ${c.opponent}`;
     if (g.phase === 'main' && g.forbidden) return 'Coup annulé : jouez-en un autre';
     if (canSkip(g)) return 'Provocation : prenez une pièce, ou passez';
@@ -98,6 +103,8 @@
   }
   const level = $derived(c.level);
   const online = $derived(c.mode === 'online');
+  /** En ligne : l'adversaire doit agir (son tour, ou une décision pendant le mien). */
+  const theirMove = $derived(online && !c.online?.waiting && g.phase !== 'over' && g.phase !== 'duel' && actor(g) !== c.color);
 
   // en ligne : inviter l'adversaire (lien direct vers la partie, ou code à saisir)
   let copied = $state(false);
@@ -180,7 +187,7 @@
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" /></svg>
     </button>
     <div class="opponent">
-      <div class="avatar" class:thinking={c.thinking}>
+      <div class="avatar" class:thinking={c.thinking || theirMove}>
         <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
           <rect x="6" y="9" width="20" height="16" rx="4" fill="var(--mustard)" stroke="var(--ink)" stroke-width="2.4" />
           <circle cx="12.5" cy="17" r="2.4" fill="var(--ink)" /><circle cx="19.5" cy="17" r="2.4" fill="var(--ink)" />
@@ -193,7 +200,7 @@
           <span>Adversaire · à deux sur cet appareil</span>
         {:else if c.online}
           <strong>Adversaire</strong>
-          <span><i class="presence" class:here={c.online.here}></i>{c.online.waiting ? 'pas encore arrivé' : c.online.here ? 'en ligne' : 'hors ligne'} · partie {c.online.code}</span>
+          <span><i class="presence" class:here={c.online.here}></i>{c.online.waiting ? 'pas encore arrivé' : c.online.here ? 'en ligne' : 'hors ligne'}{theirMove ? ' · réfléchit…' : ` · partie ${c.online.code}`}</span>
         {:else}
           <strong>Ordinateur</strong>
           <span>{level.label}{c.thinking ? ' · réfléchit…' : ''}</span>
