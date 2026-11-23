@@ -1,0 +1,6 @@
+node_modules
+dist
+public/stockfish
+*.log
+# données protégées (illustrations, noms et textes des cartes) : jamais dans le dépôt
+private/

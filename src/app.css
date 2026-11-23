@@ -1,0 +1,151 @@
+@font-face {
+  font-family: 'SuperComic';
+  src: url('./assets/SuperComic.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root {
+  --paper: #f6efdc;
+  --card: #fffaf0;
+  --ink: #1d1a16;
+  --muted: #6b6155;
+  --mustard: #f2b632;
+  --mustard-soft: #fbe3a4;
+  --accent: #d6452f;
+  --sq-light: #f3e3bf;
+  --sq-dark: #c49a5c;
+  --hl-last: rgba(242, 182, 50, 0.55);
+  --hl-select: rgba(214, 69, 47, 0.45);
+  --hl-card: rgba(214, 69, 47, 0.4);
+  --hl-mark: rgba(214, 69, 47, 0.3);
+  --font-comic: 'SuperComic', 'Comic Sans MS', 'Chalkboard SE', system-ui, sans-serif;
+  /* ombres « bande dessinée », texte posé sur le moutarde, trame du fond, voiles */
+  --shadow: #1d1a16;
+  --on-bright: #1d1a16;
+  --grain: rgba(29, 26, 22, 0.07);
+  --scrim: rgba(29, 26, 22, 0.55);
+  --toast-bg: #1d1a16;
+  --toast-fg: #f6efdc;
+  /* sur l'échiquier (qui reste en bois dans les deux thèmes) */
+  --board-ink: #1d1a16;
+  --hint: rgba(29, 26, 22, 0.32);
+  --logo-blend: multiply;
+  --logo-frame: none;
+  --logo-shadow: none;
+  color-scheme: light;
+}
+
+/* Thème sombre : selon le système, sauf choix explicite (data-theme sur <html>). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #1a1714;
+    --card: #27221d;
+    --ink: #eee4d0;
+    --muted: #a99d8b;
+    --mustard-soft: #4a3b1b;
+    --accent: #e8604a;
+    --sq-light: #e4cc9c;
+    --sq-dark: #ae8350;
+    --shadow: #000;
+    --grain: rgba(255, 240, 210, 0.045);
+    --scrim: rgba(0, 0, 0, 0.66);
+    --toast-bg: #eee4d0;
+    --toast-fg: #1a1714;
+    --logo-blend: normal;
+    --logo-frame: 3px solid var(--ink);
+    --logo-shadow: 4px 4px 0 #000;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --paper: #1a1714;
+  --card: #27221d;
+  --ink: #eee4d0;
+  --muted: #a99d8b;
+  --mustard-soft: #4a3b1b;
+  --accent: #e8604a;
+  --sq-light: #e4cc9c;
+  --sq-dark: #ae8350;
+  --shadow: #000;
+  --grain: rgba(255, 240, 210, 0.045);
+  --scrim: rgba(0, 0, 0, 0.66);
+  --toast-bg: #eee4d0;
+  --toast-fg: #1a1714;
+  --logo-blend: normal;
+  --logo-frame: 3px solid var(--ink);
+  --logo-shadow: 4px 4px 0 #000;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  background-image: radial-gradient(var(--grain) 1px, transparent 1.2px);
+  background-size: 14px 14px;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn {
+  border: 2.5px solid var(--ink);
+  border-radius: 12px;
+  padding: 11px 16px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 3px 3px 0 var(--shadow);
+  cursor: pointer;
+  transition:
+    transform 80ms ease,
+    box-shadow 80ms ease;
+}
+.btn:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--shadow);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--mustard);
+  color: var(--on-bright);
+}
+.btn.danger {
+  background: var(--accent);
+  color: #fff;
+}
+.btn.ghost {
+  background: var(--card);
+}
+.btn.small {
+  padding: 7px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.btn.wide {
+  width: 100%;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
