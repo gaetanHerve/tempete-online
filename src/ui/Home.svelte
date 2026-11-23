@@ -18,11 +18,12 @@
   let gallery = $state(false);
   let rules = $state(false);
   let zoom = $state<string | null>(null);
-  let iosHelp = $state(false);
+  /** Consignes d'installation à montrer quand le navigateur ne peut pas la lancer lui-même. */
+  let installHelp = $state<'ios' | 'menu' | null>(null);
 
   function installApp() {
     if (install.canPrompt) void install.prompt();
-    else iosHelp = true;
+    else installHelp = install.ios ? 'ios' : 'menu';
   }
   const canResume = c.hasSave();
 
@@ -205,11 +206,25 @@
   </Sheet>
 {/if}
 
-{#if iosHelp}
-  <Sheet onclose={() => (iosHelp = false)} label="Installer l'appli">
+{#if installHelp}
+  <Sheet onclose={() => (installHelp = null)} label="Installer l'appli">
     <h2 class="sheet-title">Installer l'appli</h2>
     <p class="install-intro">Installé sur l'écran d'accueil, le jeu s'ouvre en plein écran, sans barre d'adresse.</p>
     <ol class="install-steps">
+      {#if installHelp === 'menu'}
+        <li>
+          <span class="step-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="5" r="2" fill="currentColor" /><circle cx="12" cy="12" r="2" fill="currentColor" /><circle cx="12" cy="19" r="2" fill="currentColor" /></svg>
+          </span>
+          <span>Ouvrez le <strong>menu</strong> du navigateur (les trois points, en haut ou en bas à droite).</span>
+        </li>
+        <li>
+          <span class="step-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.2" /><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
+          </span>
+          <span>Choisissez <strong>Installer</strong> ou <strong>Ajouter à l'écran d'accueil</strong>, puis confirmez.</span>
+        </li>
+      {:else}
       <li>
         <span class="step-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 3v12M12 3 8 7m4-4 4 4M7 11H5v10h14V11h-2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -222,9 +237,10 @@
         </span>
         <span>Faites défiler, choisissez <strong>Sur l'écran d'accueil</strong>, puis <strong>Ajouter</strong>.</span>
       </li>
+      {/if}
     </ol>
     <p class="install-note">L'appli installée garde ses propres données : il faudra y saisir le mot de passe une fois. Pour rejoindre une partie depuis l'appli, saisissez son code dans « En ligne ».</p>
-    <button type="button" class="btn primary wide" onclick={() => (iosHelp = false)}>Compris</button>
+    <button type="button" class="btn primary wide" onclick={() => (installHelp = null)}>Compris</button>
   </Sheet>
 {/if}
 
