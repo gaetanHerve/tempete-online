@@ -4,7 +4,7 @@
 
 import { applyMove, legalMoves, type NormalMove } from './chess';
 import { CARD_BY_ID, DECK_CARDS, isDead, type CardContext, type CardOption, type FollowStep } from './cards';
-import { clonePos, finishCardEffect, inCheck, other, startPosition, toFen, type Color, type Piece, type PieceType, type Position, type Sq } from './position';
+import { clonePos, fileOf, finishCardEffect, inCheck, rankOf, other, startPosition, toFen, type Color, type Piece, type PieceType, type Position, type Sq } from './position';
 
 export const HAND_SIZE = 5;
 
@@ -36,6 +36,8 @@ export interface Pending {
   resume: Phase;
   /** Annulations successives (Non, Niet) : la carte s'applique si leur nombre est pair. */
   counters: { color: Color; card: string }[];
+  /** Où va chaque pièce si la carte s'applique (case d'arrivée par case de départ, -1 : inconnu). */
+  follow?: number[];
 }
 
 export type Throw = 'pierre' | 'feuille' | 'ciseaux';
@@ -130,6 +132,8 @@ export interface GameState {
   ply: number;
   /** L'état d'avant le coup qui vient d'être joué, tant qu'il peut encore être annulé. */
   undo?: GameState | null;
+  /** (transitoire, le temps d'une action) déplacement des pièces par une carte en suspens appliquée. */
+  follow?: number[];
 }
 
 export type Action =
@@ -354,12 +358,12 @@ function targets(state: GameState, r: Rule): boolean {
 const provokes = (state: GameState, r: Rule) => r.card === 'provocation' && targets(state, r);
 const rule = (state: GameState, card: string) => (state.rules ?? []).find((r) => r.card === card);
 
-/** Provocation : le joueur actif peut passer son tour plutôt que de prendre. */
 /** Le coup qui vient d'être joué peut-il être repris ? (rien d'autre ne s'est passé depuis) */
 export function canUndo(state: GameState): boolean {
   return state.phase === 'after' && !!state.undo;
 }
 
+/** Provocation : le joueur actif peut passer son tour plutôt que de prendre. */
 export function canSkip(state: GameState): boolean {
   return state.phase === 'main' && (state.rules ?? []).some((r) => provokes(state, r));
 }
@@ -374,7 +378,7 @@ export function apply(prev: GameState, action: Action): GameState {
     return structuredClone(prev.undo!);
   }
   const state = applyAction(prev, action);
-  followSleepers(prev.pos.board, state);
+  followTargets(prev, state);
   // seul un coup qui laisse la main à son auteur peut être repris ; toute autre action l'empêche
   state.undo = action.type === 'move' && state.phase === 'after' && state.active === prev.active ? { ...prev, undo: null } : null;
   refreshRules(state);
@@ -459,7 +463,7 @@ function applyAction(prev: GameState, action: Action): GameState {
 
       // l'adversaire peut-il annuler cette carte ? elle reste alors en suspens
       if (canCounter(state, other(who))) {
-        state.pending = { color: who, card: action.card, option: opt, resume: state.phase, counters: [] };
+        state.pending = { color: who, card: action.card, option: opt, resume: state.phase, counters: [], follow: whereTo(prev.pos.board, opt.result.board) };
         state.phase = 'counter';
         return state;
       }
@@ -625,7 +629,10 @@ function resolvePending(state: GameState): GameState {
   const p = state.pending!;
   state.pending = null;
   state.phase = p.resume;
-  if (p.counters.length % 2 === 0) return applyCard(state, p.card, p.option);
+  if (p.counters.length % 2 === 0) {
+    state.follow = p.follow;
+    return applyCard(state, p.card, p.option);
+  }
   // annulée : la carte est perdue (son joueur pioche quand même)
   state.discard.push(p.card);
   draw(state, p.color);
@@ -778,18 +785,44 @@ function endTurn(state: GameState) {
 }
 
 /**
- * Planque : la pièce endormie reste endormie si une carte la déplace (Raton laveur, Remorque…).
- * On la retrouve sur la case où une pièce identique vient d'apparaître ; si elle n'est plus nulle
- * part (prise, transformée), refreshRules met fin à la règle.
+ * Case d'arrivée de chaque pièce de `before` dans `after`, quand `after` en est issu par un effet
+ * de carte : ces effets déplacent les pièces elles-mêmes (mêmes objets), on les reconnaît donc à
+ * coup sûr, même si plusieurs pièces identiques bougent à la fois (Tournez manège, Quadrille,
+ * Roque et rolle…). -1 : pièce introuvable ainsi (prise, transformée, ou position recalculée).
  */
-function followSleepers(before: (Piece | null)[], state: GameState) {
+function whereTo(before: (Piece | null)[], after: (Piece | null)[]): number[] {
+  return before.map((pc) => (pc ? after.indexOf(pc) : -1));
+}
+
+/**
+ * Planque, Voyance : la règle vise une pièce, pas une case. Si une carte la déplace, la règle la
+ * suit. Si elle n'est plus nulle part (prise, transformée), Planque prend fin (refreshRules).
+ */
+function followTargets(prev: GameState, state: GameState) {
+  const map = state.follow;
+  delete state.follow;
+  const before = prev.pos.board;
   const b = state.pos.board;
   const same = (p: Piece | null | undefined, q: Piece) => !!p && p.c === q.c && p.t === q.t;
+  const dist = (x: Sq, y: Sq) => Math.max(Math.abs(fileOf(x) - fileOf(y)), Math.abs(rankOf(x) - rankOf(y)));
   for (const r of state.rules ?? []) {
-    if (r.card !== 'planque' || r.sq === undefined || !r.piece) continue;
-    if (same(b[r.sq], r.piece) || !same(before[r.sq], r.piece)) continue;
-    const arrived = b.findIndex((p, s) => same(p, r.piece!) && !same(before[s], r.piece!));
-    if (arrived >= 0) r.sq = arrived;
+    const from = r.sq;
+    const piece = r.piece;
+    // (seules les règles déjà en jeu avant l'action : une règle qui vient d'être posée vise la bonne case)
+    if (from === undefined || !piece || !prev.rules?.some((o) => o.card === r.card && o.owner === r.owner && o.sq === from)) continue;
+    // 1. la pièce elle-même, retrouvée à coup sûr
+    let to = map?.[from] ?? -1;
+    if (to < 0 && before[from]) to = b.indexOf(before[from]);
+    if (to >= 0) {
+      r.sq = to;
+      continue;
+    }
+    // 2. sinon (position recalculée par le moteur d'échecs) : restée en place, ou la plus proche
+    //    des pièces identiques arrivées ailleurs
+    if (same(b[from], piece) || !same(before[from], piece)) continue;
+    let best = -1;
+    for (let t = 0; t < 64; t++) if (same(b[t], piece) && !same(before[t], piece) && (best < 0 || dist(from, t) < dist(from, best))) best = t;
+    if (best >= 0) r.sq = best;
   }
 }
 

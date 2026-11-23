@@ -669,6 +669,27 @@ describe('règles temporaires', () => {
     expect(normalMoves(g).some((m) => m.from === S('d2'))).toBe(false);
   });
 
+  it('Planque suit la bonne pièce quand plusieurs pièces identiques bougent (Quadrille), même après un Non', () => {
+    for (const black of [[], ['non']]) {
+      let g = newGame(19);
+      g.pos = fromFen('r7/8/3k4/8/8/8/8/R3K2R w - - 0 1');
+      g.active = 'w';
+      g.hands.w = ['quadrille'];
+      g.hands.b = black;
+      // la Tour a1 dort ; les coins tournent : a1 → a8, et l'autre Tour h1 → a1 prend sa place
+      g.rules = [{ card: 'planque', owner: 'b', sq: S('a1'), piece: { c: 'w', t: 'r' } }];
+      g = mv(g, 'e1', 'e2');
+      g = apply(g, { type: 'card', card: 'quadrille', path: [], label: 'Sens horaire' });
+      if (black.length) {
+        expect(g.phase).toBe('counter');
+        g = apply(g, { type: 'pass' }); // les Noirs n'annulent pas : la carte s'applique
+      }
+      expect(g.pos.board[S('a1')]).toMatchObject({ c: 'w', t: 'r' });
+      expect(g.pos.board[S('a8')]).toMatchObject({ c: 'w', t: 'r' });
+      expect(g.rules).toMatchObject([{ card: 'planque', sq: S('a8') }]);
+    }
+  });
+
   it('Annuler son coup : seulement juste après l’avoir joué', () => {
     const g = newGame(19);
     g.pos = fromFen('r3k3/8/8/8/8/8/8/R3K3 w - - 0 1');
