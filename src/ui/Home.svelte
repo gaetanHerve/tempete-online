@@ -2,6 +2,7 @@
   import { BOT_LEVELS } from '../core/bot';
   import { DECK_CARDS } from '../core/cards';
   import { THEME_LABEL, controller as c, type Mode, type Prefs } from '../lib/controller.svelte';
+  import { install } from '../lib/install.svelte';
   import { CODE_LENGTH, OnlineError, isValidCode, normalizeCode } from '../lib/online';
   import Card from './Card.svelte';
   import Sheet from './Sheet.svelte';
@@ -17,6 +18,12 @@
   let gallery = $state(false);
   let rules = $state(false);
   let zoom = $state<string | null>(null);
+  let iosHelp = $state(false);
+
+  function installApp() {
+    if (install.canPrompt) void install.prompt();
+    else iosHelp = true;
+  }
   const canResume = c.hasSave();
 
   // en ligne : création ou arrivée dans une partie (réseau), avec son attente et ses erreurs
@@ -161,6 +168,13 @@
     {mode === 'online' ? (busy ? 'Connexion…' : 'Créer une partie') : 'Nouvelle partie'}
   </button>
 
+  {#if install.offered}
+    <button type="button" class="btn ghost wide install" onclick={installApp}>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      Installer l'appli
+    </button>
+  {/if}
+
   <div class="links">
     <button type="button" class="link" onclick={() => (rules = true)}>Comment jouer ?</button>
     <button type="button" class="link" onclick={() => (gallery = true)}>Les {DECK_CARDS.length} cartes</button>
@@ -188,6 +202,29 @@
       </ul>
     </div>
     <button type="button" class="btn primary wide" onclick={() => (rules = false)}>Compris</button>
+  </Sheet>
+{/if}
+
+{#if iosHelp}
+  <Sheet onclose={() => (iosHelp = false)} label="Installer l'appli">
+    <h2 class="sheet-title">Installer l'appli</h2>
+    <p class="install-intro">Installé sur l'écran d'accueil, le jeu s'ouvre en plein écran, sans barre d'adresse.</p>
+    <ol class="install-steps">
+      <li>
+        <span class="step-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 3v12M12 3 8 7m4-4 4 4M7 11H5v10h14V11h-2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </span>
+        <span>Dans Safari, touchez le bouton <strong>Partager</strong> (en bas de l'écran, ou en haut sur iPad).</span>
+      </li>
+      <li>
+        <span class="step-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.2" /><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
+        </span>
+        <span>Faites défiler, choisissez <strong>Sur l'écran d'accueil</strong>, puis <strong>Ajouter</strong>.</span>
+      </li>
+    </ol>
+    <p class="install-note">L'appli installée garde ses propres données : il faudra y saisir le mot de passe une fois. Pour rejoindre une partie depuis l'appli, saisissez son code dans « En ligne ».</p>
+    <button type="button" class="btn primary wide" onclick={() => (iosHelp = false)}>Compris</button>
   </Sheet>
 {/if}
 
@@ -339,6 +376,46 @@
     color: var(--accent);
     font-weight: 700;
     text-align: center;
+  }
+  .install {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .install-intro,
+  .install-note {
+    margin: 0 0 12px;
+    line-height: 1.45;
+  }
+  .install-note {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .install-steps {
+    margin: 0 0 14px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .install-steps li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    line-height: 1.4;
+  }
+  .step-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: 2.5px solid var(--ink);
+    border-radius: 10px;
+    background: var(--paper);
+    color: #1a73e8;
   }
   .version {
     margin: 0;

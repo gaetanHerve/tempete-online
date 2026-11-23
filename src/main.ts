@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import './app.css';
 import { RESUME_KEY, applyTheme, controller } from './lib/controller.svelte';
+import './lib/install.svelte'; // dès le chargement : l'offre d'installation n'est envoyée qu'une fois
 import { unlockAudio } from './lib/sound';
 
 window.addEventListener('pointerdown', unlockAudio);
