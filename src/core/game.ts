@@ -309,7 +309,43 @@ export function cardOptions(state: GameState, cardId: string): CardOption[] {
   const def = CARD_BY_ID[cardId];
   if (def.timing === 'replace' && canSkip(state)) return []; // Provocation : prendre ou passer
   if (def.hand) return [{ path: [], result: state.pos, marks: [], summary: def.title }];
-  return def.options!(cardContext(state));
+  const ctx = cardContext(state);
+  const options = def.options!(ctx);
+  // Cessez-le-feu : aucune prise, même par une carte
+  return rule(state, 'cessezLeFeu') ? options.filter((o) => !takes(cardId, state.pos.board, o.result.board, ctx.me)) : options;
+}
+
+/**
+ * Cartes qui peuvent faire prendre des pièces adverses (Cessez-le-feu ne vise que celles-là).
+ * - 'theirs' : le joueur de la carte prend des pièces de son adversaire (prendre l'une des siennes
+ *   reste permis, comme avec Ruade ; le Fou du Psychopathe, retiré, n'est pas pris).
+ * - 'mine' : Olé, Verglas : c'est la pièce adverse qui glisse et prend celles du joueur de la carte
+ *   (si elle tombe de l'échiquier, elle n'est pas prise).
+ * Retirer une pièce n'est pas la prendre : Grosse déprime, Apartheid, Laser, Douane restent permis.
+ */
+const TAKERS: Record<string, 'theirs' | 'mine'> = {
+  chasseNeige: 'theirs',
+  maison: 'theirs',
+  paranoia: 'theirs',
+  psychopathe: 'theirs',
+  pasDeDeux: 'theirs',
+  serialKiller: 'theirs',
+  ruade: 'theirs',
+  voyageAstral: 'theirs',
+  modestie: 'theirs',
+  coupDouble: 'theirs',
+  ole: 'mine',
+  verglas: 'mine',
+};
+export const TAKES_CARDS = new Set(Object.keys(TAKERS));
+
+/** Cette option de carte prend-elle des pièces ? */
+export function takes(cardId: string, before: (Piece | null)[], after: (Piece | null)[], me: Color): boolean {
+  const who = TAKERS[cardId];
+  if (!who) return false;
+  const count = (b: (Piece | null)[], c: Color) => b.filter((p) => p?.c === c).length;
+  const lost = (c: Color) => count(after, c) < count(before, c);
+  return lost(who === 'mine' ? me : other(me));
 }
 
 export function playableCards(state: GameState): string[] {

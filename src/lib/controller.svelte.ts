@@ -9,7 +9,7 @@
 import { BOT_LEVELS, decide, duelThrow, type BotLevel } from '../core/bot';
 import { CARD_BY_ID, isDead, type CardOption } from '../core/cards';
 import type { NormalMove } from '../core/chess';
-import { actor, apply, canDiscard, canSkip, cardOptions, choiceStep, clashingRules, mustAct, newGame, normalMoves, playableCards, resign, type Action, type GameState, type Throw } from '../core/game';
+import { actor, apply, canDiscard, canSkip, cardOptions, choiceStep, clashingRules, mustAct, newGame, normalMoves, playableCards, resign, TAKES_CARDS, type Action, type GameState, type Throw } from '../core/game';
 import { CARD_PIECE_DELAY, play as playSound } from './sound';
 import { inCheck, kingSq, toFen, type Color, type PieceType, type Sq } from '../core/position';
 import { createRoom, joinRoom, openRoom, type ChatMessage, type NetAction, type NetEntry, type Room, type RoomMeta } from './online';
@@ -827,7 +827,11 @@ export class GameController {
     if (t === 'replace' && canSkip(g)) return 'Provocation : prenez une pièce ou passez votre tour';
     if (g.phase === 'main' && t === 'after') return 'Se joue après votre coup';
     if (g.phase === 'after' && (t === 'replace' || t === 'before')) return 'Se joue avant votre coup';
-    if (!cardOptions(g, card).length) return 'Aucune cible possible pour le moment';
+    if (!cardOptions(g, card).length) {
+      return (g.rules ?? []).some((r) => r.card === 'cessezLeFeu') && TAKES_CARDS.has(card)
+        ? `${CARD_BY_ID.cessezLeFeu.title} : aucune prise possible pour le moment`
+        : 'Aucune cible possible pour le moment';
+    }
     return null;
   }
 

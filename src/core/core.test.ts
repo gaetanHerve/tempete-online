@@ -690,6 +690,29 @@ describe('règles temporaires', () => {
     }
   });
 
+  it('Cessez-le-feu : retirer une pièce n’est pas la prendre (Grosse déprime reste jouable)', () => {
+    const g = newGame(19);
+    g.pos = fromFen('4k3/8/8/8/1p6/8/8/R3K3 w - - 0 1');
+    g.active = 'w';
+    g.phase = 'after';
+    g.hands.w = ['grosseDeprime'];
+    g.hands.b = [];
+    g.rules = [{ card: 'cessezLeFeu', owner: 'b' }];
+    expect(cardOptions(g, 'grosseDeprime').length).toBeGreaterThan(0);
+  });
+
+  it('Cessez-le-feu : Chasse-neige ne peut plus prendre', () => {
+    const g = newGame(19);
+    g.pos = fromFen('4k3/8/8/8/8/8/8/Rn2K3 w - - 0 1');
+    g.active = 'w';
+    g.hands.w = ['chasseNeige'];
+    g.hands.b = [];
+    const takes = (o: { result: { board: unknown[] } }) => o.result.board.filter(Boolean).length < 4; // (4 pièces au départ)
+    expect(cardOptions(g, 'chasseNeige').some(takes)).toBe(true);
+    g.rules = [{ card: 'cessezLeFeu', owner: 'b' }];
+    expect(cardOptions(g, 'chasseNeige').some(takes)).toBe(false);
+  });
+
   it('Annuler son coup : seulement juste après l’avoir joué', () => {
     const g = newGame(19);
     g.pos = fromFen('r3k3/8/8/8/8/8/8/R3K3 w - - 0 1');
