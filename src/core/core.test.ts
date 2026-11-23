@@ -657,6 +657,11 @@ describe('règles temporaires', () => {
     expect(g.pos.board[S('a8')]?.t).toBe('r');
     expect(g.log.at(-1)).toMatchObject({ card: 'voyance', notice: true });
     expect(g.rules).toEqual([]);
+    // et les Blancs peuvent rejouer : la position est bien de leur côté
+    expect(g.pos.turn).toBe('w');
+    expect(normalMoves(g).every((m) => g.pos.board[m.from]?.c === 'w')).toBe(true);
+    g = mv(g, 'f1', 'f2');
+    expect(g.pos.board[S('f2')]?.t).toBe('k');
 
     let h = posed('r3k3/8/8/8/8/8/8/4K3 w - - 0 1', 'e1', 'f1', 'voyance', ['a8']);
     h = mv(h, 'e8', 'd7'); // une autre pièce : rien ne se passe

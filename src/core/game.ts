@@ -396,8 +396,9 @@ function applyAction(prev: GameState, action: Action): GameState {
         endRule(state, seer);
         state.ply++;
         state.lastEvent = { color: seer.owner, marks: [m.from], card: 'voyance' };
-        state.log.push({ color: seer.owner, card: 'voyance', text: `Voyance avait vu juste : ${m.san} est annulé`, notice: true });
-        endTurn(state);
+        state.log.push({ color: seer.owner, card: 'voyance', text: `${CARD_BY_ID.voyance.title} avait vu juste : ${m.san} est annulé`, notice: true });
+        // (tour perdu : la position passe aussi à l'adversaire, sinon il ne pourrait pas jouer)
+        passTurn(state);
         return state;
       }
       state.pos = applyMove(state.pos, m);
@@ -468,7 +469,7 @@ function applyAction(prev: GameState, action: Action): GameState {
       r.splice(r.indexOf('jePasse'), 1);
       state.discard.push('jePasse');
       state.ply++;
-      state.log.push({ color: me, card: 'jePasse', text: 'Je passe : rejoue un coup' });
+      state.log.push({ color: me, card: 'jePasse', text: `${CARD_BY_ID.jePasse.title} : rejoue un coup` });
       // l'adversaire « passe » : c'est de nouveau à moi dans la position
       state.pos = finishCardEffect(clonePos(state.pos), true);
       state.phase = 'main';
@@ -479,7 +480,7 @@ function applyAction(prev: GameState, action: Action): GameState {
     case 'skip': {
       if (!canSkip(state)) throw new IllegalAction('Vous ne pouvez pas passer votre tour');
       state.ply++;
-      state.log.push({ color: me, card: 'provocation', text: 'Provocation : passe son tour' });
+      state.log.push({ color: me, card: 'provocation', text: `${CARD_BY_ID.provocation.title} : passe son tour` });
       passTurn(state);
       return state;
     }
@@ -700,7 +701,7 @@ function duelRound(state: GameState, c: Color, t: Throw): GameState {
     state.lastMove = null;
   }
   state.lastDuel = { score: { ...d.score }, last: d.last, defender: d.defender, winner };
-  state.log.push({ color: winner, card: 'duel', text: `Duel ${d.score[d.defender]}–${d.score[d.attacker]} : ${defended ? 'la pièce attaquante est éliminée' : 'la prise a lieu'}` });
+  state.log.push({ color: winner, card: 'duel', text: `${CARD_BY_ID.duel.title} ${d.score[d.defender]}–${d.score[d.attacker]} : ${defended ? 'la pièce attaquante est éliminée' : 'la prise a lieu'}` });
   state.duel = null;
   state.phase = 'after';
   return state;
@@ -752,7 +753,7 @@ function endTurn(state: GameState) {
     swapSeats(state);
     state.swap = null;
     state.discard.push('doubleJeu');
-    state.log.push({ color: state.active, card: 'doubleJeu', text: 'Double jeu prend fin : chacun retrouve sa couleur', notice: true });
+    state.log.push({ color: state.active, card: 'doubleJeu', text: `${CARD_BY_ID.doubleJeu.title} prend fin : chacun retrouve sa couleur`, notice: true });
   }
   checkGameOver(state);
 }
