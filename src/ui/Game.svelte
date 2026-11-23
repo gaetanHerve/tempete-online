@@ -30,6 +30,11 @@
   let showLog = $state(false);
   let showMenu = $state(false);
   let zoom = $state<string | null>(null);
+  /** Fin de partie : la fenêtre du résultat a été refermée (on la rouvre depuis la barre). */
+  let overHidden = $state(false);
+  $effect(() => {
+    if (g.phase !== 'over') overHidden = false;
+  });
 
   // grand écran en paysage (même requête que la mise en page « table de jeu » plus bas)
   const WIDE = '(min-width: 1000px) and (min-height: 600px) and (min-aspect-ratio: 5/4)';
@@ -377,7 +382,9 @@
         <span class="turn-dot" class:mine={actor(g) === c.color && g.phase !== 'over'}></span>
         <span>{status}</span>
       </div>
-      {#if g.phase === 'after' && g.active === c.color}
+      {#if g.phase === 'over'}
+        <button type="button" class="btn primary small" onclick={() => (overHidden = false)}>Résultat</button>
+      {:else if g.phase === 'after' && g.active === c.color}
         <div class="turn-btns">
           {#if canUndo(g) && c.myTurn}
             <button type="button" class="btn ghost small" onclick={() => c.undo()} title="Reprendre le coup que vous venez de jouer">Annuler mon coup</button>
@@ -557,11 +564,12 @@
 {/if}
 
 <!-- fin de partie -->
-{#if g.phase === 'over' && g.result}
+{#if g.phase === 'over' && g.result && !overHidden}
   {@const local = c.mode === 'local'}
   {@const won = local || g.result.winner === c.human}
   {@const draw = g.result.winner === null}
-  <Sheet center label="Fin de partie">
+  <!-- refermable : pour revoir l'échiquier, ou continuer à discuter en ligne -->
+  <Sheet center onclose={() => (overHidden = true)} label="Fin de partie">
     <div class="over">
       <div class="over-badge" class:won class:draw>
         {draw ? 'Nulle' : local ? `Les ${c.colorName(g.result.winner!)} gagnent !` : won ? 'Victoire !' : 'Défaite'}
@@ -569,7 +577,17 @@
       <p>{g.result.reason}{draw || local ? '' : won ? ' — bien joué.' : online ? " — l'adversaire l'emporte." : " — l'ordinateur l'emporte."}</p>
       {#if !online}
         <button type="button" class="btn primary wide" onclick={() => c.start(c.prefs)}>Rejouer</button>
+      {:else}
+        <button
+          type="button"
+          class="btn primary wide"
+          onclick={() => {
+            overHidden = true;
+            if (!c.chatDocked) c.openChat();
+          }}>Discuter{c.unread ? ` (${c.unread} non lu${c.unread > 1 ? 's' : ''})` : ''}</button
+        >
       {/if}
+      <button type="button" class="btn ghost wide" onclick={() => (overHidden = true)}>Voir l'échiquier</button>
       <button type="button" class="btn ghost wide" onclick={onquit}>Menu principal</button>
     </div>
   </Sheet>
