@@ -30,6 +30,10 @@ npm run vault    # rechiffre le coffre des cartes, public/vault.bin (voir « Don
 Pour le déploiement, il suffit de pousser sur `main` d'un dépôt GitHub avec Pages activé
 (source : « GitHub Actions ») : `.github/workflows/deploy.yml` s'occupe du reste.
 
+Le build ajoute à `index.html` une politique de sécurité du contenu (CSP, voir `vite.config.ts`) :
+l'appli ne peut joindre que son propre site, la base Firebase et son authentification. Toute
+nouvelle ressource externe (domaine, script, police…) doit y être ajoutée.
+
 ## Règles retenues
 
 - Partie d'échecs classique. Chaque joueur a 5 cartes en main.
