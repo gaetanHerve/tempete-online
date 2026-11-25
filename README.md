@@ -3,7 +3,7 @@
 Les échecs, avec des cartes qui chamboulent tout. On joue contre l'ordinateur, à deux sur le
 même appareil, ou en ligne. C'est une appli web statique, installable sur téléphone (PWA) :
 le mode en ligne s'appuie sur Firebase, sans serveur à héberger. L'interface existe en
-français et en anglais (langue du navigateur au premier lancement, puis au choix).
+français, en anglais et en islandais (langue du navigateur au premier lancement, puis au choix).
 
 ## Jeu original
 

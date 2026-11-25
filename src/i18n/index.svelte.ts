@@ -6,15 +6,16 @@ import type { Msg, MsgParam } from '../core/msg';
 import { en, enExtras } from './en';
 import { Formatter, LOCALES, type CardTexts, type Dict, type Extras, type Locale } from './format';
 import { fr, frExtras, type MsgKey } from './fr';
+import { is, isExtras } from './is';
 
 export { LOCALES, type Locale } from './format';
 export type { MsgKey } from './fr';
 
 const STORAGE = 'tempete2.langue';
-const DICTS: Record<Locale, Dict> = { fr, en };
-const EXTRAS: Record<Locale, Extras> = { fr: frExtras, en: enExtras };
+const DICTS: Record<Locale, Dict> = { fr, en, is };
+const EXTRAS: Record<Locale, Extras> = { fr: frExtras, en: enExtras, is: isExtras };
 /** Nom de chaque langue, dans cette langue (sélecteur). */
-export const LOCALE_NAME: Record<Locale, string> = { fr: 'Français', en: 'English' };
+export const LOCALE_NAME: Record<Locale, string> = { fr: 'Français', en: 'English', is: 'Íslenska' };
 
 function initial(): Locale {
   try {

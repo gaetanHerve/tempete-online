@@ -4,8 +4,8 @@ import type { Msg, MsgParam } from '../core/msg';
 import { PIECE_LABEL, sqName, type Color, type PieceType, type Sq } from '../core/position';
 import type { MsgKey } from './fr';
 
-export type Locale = 'fr' | 'en';
-export const LOCALES: Locale[] = ['fr', 'en'];
+export type Locale = 'fr' | 'en' | 'is';
+export const LOCALES: Locale[] = ['fr', 'en', 'is'];
 
 /** Outils passés aux entrées des dictionnaires pour nommer pièces, cases, cartes… */
 export interface Helpers {

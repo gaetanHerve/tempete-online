@@ -14,6 +14,7 @@
 <style>
   .lang {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 6px;
   }

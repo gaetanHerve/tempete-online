@@ -3,15 +3,15 @@ import { CARDS } from '../core/cards';
 import { THROWS, actor, apply, canDiscard, canReplay, canSkip, cardOptions, choiceStep, mustAct, newGame, normalMoves, type Action, type GameState } from '../core/game';
 import type { Msg } from '../core/msg';
 import { en, enExtras } from './en';
-import { Formatter, LOCALES, type CardTexts, type Locale } from './format';
+import { Formatter, LOCALES, type CardTexts, type Dict, type Extras, type Locale } from './format';
 import { fr, frExtras } from './fr';
+import { is, isExtras } from './is';
 
 // titres factices (les vrais sont dans le coffre) : on vérifie la mise en mots, pas les textes
 const cards: CardTexts = Object.fromEntries(CARDS.map((c) => [c.id, { title: `«${c.id}»`, text: '…' }]));
-const formatters: Record<Locale, Formatter> = {
-  fr: new Formatter(fr, () => ({ mine: cards })),
-  en: new Formatter(en, () => ({ mine: cards })),
-};
+const DICTS: Record<Locale, Dict> = { fr, en, is };
+const EXTRAS: Record<Locale, Extras> = { fr: frExtras, en: enExtras, is: isExtras };
+const formatters = Object.fromEntries(LOCALES.map((l) => [l, new Formatter(DICTS[l], () => ({ mine: cards }))])) as Record<Locale, Formatter>;
 
 /** Une phrase mal formée trahit un paramètre manquant ou mal nommé. */
 function expectClean(text: string, where: string) {
@@ -41,9 +41,12 @@ function randomAction(g: GameState, rnd: () => number): Action {
 
 describe('traductions', () => {
   it('chaque langue a les consignes de chaque étape, en même nombre', () => {
-    for (const [card, steps] of Object.entries(frExtras.steps)) expect(enExtras.steps[card]?.length, card).toBe(steps.length);
-    expect(Object.keys(enExtras.steps).sort()).toEqual(Object.keys(frExtras.steps).sort());
-    for (const l of LOCALES) expect(({ fr: frExtras, en: enExtras }[l]).rules(formatters[l].h)).toHaveLength(frExtras.rules(formatters.fr.h).length);
+    for (const l of LOCALES) {
+      for (const [card, steps] of Object.entries(frExtras.steps)) expect(EXTRAS[l].steps[card]?.length, `${l} · ${card}`).toBe(steps.length);
+      expect(Object.keys(EXTRAS[l].steps).sort(), l).toEqual(Object.keys(frExtras.steps).sort());
+      expect(EXTRAS[l].rules(formatters[l].h), l).toHaveLength(frExtras.rules(formatters.fr.h).length);
+      expect(EXTRAS[l].quick.length, l).toBeGreaterThan(0);
+    }
   });
 
   it('les messages des parties se mettent en mots dans chaque langue', () => {
@@ -79,7 +82,7 @@ describe('traductions', () => {
 
   it('les entrées sans paramètres ne sont pas vides', () => {
     for (const l of LOCALES) {
-      const dict = { fr, en }[l] as Record<string, unknown>;
+      const dict = DICTS[l] as Record<string, unknown>;
       for (const [k, v] of Object.entries(dict)) if (typeof v === 'string') expect(v.trim(), `${l} · ${k}`).not.toBe('');
     }
   });
