@@ -87,7 +87,11 @@ function connect(): Promise<Session> {
     const a = auth.getAuth(app);
     await a.authStateReady(); // identité anonyme gardée par l'appareil : on retrouve sa place
     const user = a.currentUser ?? (await auth.signInAnonymously(a)).user;
-    return { db: fb.getDatabase(app), fb, uid: user.uid, base: `v1/${await hmacHex(key, 'tempete/salons/v1')}/rooms` };
+    // Adresse en wss:// : WebSocket seulement. Sinon, après une WebSocket interrompue (appli mise
+    // en arrière-plan, changement de réseau), le SDK repart en « long polling », qui charge des
+    // scripts depuis la base : la CSP les refuse (vite.config.ts) et la connexion n'aboutit jamais.
+    const url = FIREBASE_CONFIG.databaseURL.replace(/^https:/, 'wss:');
+    return { db: fb.getDatabase(app, url), fb, uid: user.uid, base: `v1/${await hmacHex(key, 'tempete/salons/v1')}/rooms` };
   })();
   session.catch(() => (session = null));
   return session;
