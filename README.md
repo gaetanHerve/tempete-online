@@ -4,6 +4,19 @@ Les échecs, avec des cartes qui chamboulent tout. On joue contre l'ordinateur, 
 même appareil, ou en ligne. C'est une appli web statique, installable sur téléphone (PWA) :
 le mode en ligne s'appuie sur Firebase, sans serveur à héberger.
 
+## Jeu original
+
+Cette appli est une adaptation numérique non officielle du jeu de cartes
+**Tempête sur l'échiquier**, de **Pierre Cléquin** et
+**[Bruno Faidutti](http://www.faidutti.com/)**
+([page du jeu sur son site](http://www.faidutti.com/tempete/tempete.htm)), illustré par
+Gérard Mathieu.
+
+Les cartes utilisées sont celles de la **seconde édition**, en couleur, publiée par
+[Variantes](https://www.variantes.com/) après la première édition parue chez Ludodélire.
+Le jeu est toujours édité par Variantes :
+[Tempête sur l'échiquier sur la boutique de l'éditeur](https://www.variantes.com/jeux-societe-voyage-boutique/43783-tempete-sur-l-echiquier-jeu-3558380050919.html).
+
 ## Démarrer
 
 ```bash
@@ -11,7 +24,7 @@ npm install      # copie aussi le moteur Stockfish dans public/stockfish
 npm run dev      # http://localhost:5173 (accessible depuis le téléphone sur le réseau local)
 npm test         # moteur de règles, cartes, parties aléatoires, bot contre le vrai Stockfish
 npm run build    # produit dist/, à servir tel quel
-npm run vault    # rechiffre public/vault.bin depuis private/ (voir « Données protégées »)
+npm run vault    # rechiffre le coffre des cartes, public/vault.bin (voir « Données protégées »)
 ```
 
 Pour le déploiement, il suffit de pousser sur `main` d'un dépôt GitHub avec Pages activé
@@ -29,12 +42,15 @@ Pour le déploiement, il suffit de pousser sur `main` d'un dépôt GitHub avec P
   Elles comptent dans la même limite (une carte pendant son tour, une pendant le tour adverse).
 - Certaines cartes posent une règle temporaire (Cessez le feu, Fringale, Planque, Origines…),
   affichée sous l'échiquier jusqu'à sa fin. Elles contraignent les coups normaux, pas les
-  cartes ; une contrainte qui ne laisserait aucun coup est suspendue pour ce coup-là.
+  cartes ; une contrainte qui ne laisserait aucun coup est suspendue pour ce coup-là. Seule
+  exception : pendant Cessez le feu, les cartes ne peuvent pas non plus prendre de pièce
+  adverse (retirer une pièce ou prendre l'une des siennes reste permis).
 - Je passe, Double jeu et Rebelote touchent au déroulement du tour : passer son tour et
   rejouer plus tard, échanger sa place avec l'adversaire pendant trois tours, jouer deux cartes
   de plus. Tenir Rebelote laisse le tour ouvert après une carte qui l'aurait terminé.
 - Après son coup, on termine toujours son tour soi-même (« Terminer mon tour »), même
-  sans carte à jouer ou à défausser.
+  sans carte à jouer ou à défausser. Tant qu'on n'a ni joué de carte ni terminé son tour (et
+  que l'adversaire n'a pas réagi), on peut annuler son coup.
 - Une carte ne peut jamais laisser son propre Roi en échec.
 - Une carte devenue définitivement inutile (le matériel qu'elle vise a disparu, ex. Pégase
   sans Cavalier) peut être défaussée, après avoir joué son coup, puis remplacée par une pioche.
@@ -44,9 +60,11 @@ Pour le déploiement, il suffit de pousser sur `main` d'un dépôt GitHub avec P
   Une carte peut donc sauver d'un mat.
 
 Seules des **cartes entièrement automatisables** sont dans le paquet (53 pour l'instant),
-c'est-à-dire celles dont l'effet transforme la position en une position d'échecs standard :
-pas de pièce féerique, pas de marqueur, pas de règle permanente. Une carte peut être mise
-de côté sans être supprimée (`SET_ASIDE` dans `cards.ts`).
+c'est-à-dire celles que l'appli sait appliquer seule, sans arbitrage : l'échiquier reste une
+position d'échecs standard, sans pièce féerique (i.e. pièce pour laquelle on modifie de manière permanente la règle de déplacement en un type de déplacement n'existant pas dans le jeu d'échecs). Les cartes à effet durable sont suivies par
+le jeu jusqu'à leur fin : règles qui durent (Cessez le feu, Fringale, Planque, Origines),
+règles du tour suivant (Provocation, Voyance), échange des places (Double jeu). Une carte
+peut être mise de côté sans être supprimée (`SET_ASIDE` dans `cards.ts`).
 
 Seule entorse aux échecs classiques : un pion peut se retrouver sur sa propre première
 rangée (Tournez manège, Raton laveur…). Il avance alors d'une case. Stockfish refusant
@@ -59,25 +77,6 @@ sont **pas** dans le dépôt. Seul leur version chiffrée l'est (`public/vault.b
 dérivée du mot de passe par PBKDF2). Au premier lancement, l'appli demande le mot de passe,
 transmis à part aux joueurs, déchiffre le coffre et mémorise la clé sur l'appareil. Sans le mot
 de passe, le fichier publié est illisible.
-
-Les données en clair restent sur le poste de l'auteur, dans `private/` (ignoré par git) :
-
-```
-private/cards.json         { "<id>": { "title": "…", "text": "…" } }
-private/cards/<id>.webp    une illustration par carte, plus card-back.webp
-```
-
-Après toute modification de `private/`, rechiffrer puis commiter `public/vault.bin` :
-
-```bash
-npm run vault                  # même mot de passe : les appareils déjà ouverts le restent
-npm run vault -- --changer     # nouveau mot de passe : tout le monde devra le ressaisir
-```
-
-Dans le code, une carte n'a que son identifiant. `title` et `text` sont renseignés à
-l'exécution (`setCardTexts`). En test, sans coffre ouvert, le titre vaut l'identifiant.
-Quand `private/` est présent, `npm test` vérifie aussi qu'aucun texte ni illustration n'est
-suivi par git.
 
 ## Architecture
 
@@ -98,9 +97,8 @@ src/ui/            composants (plateau animé, cartes, écrans)
 **Ajouter une carte** : ajouter une entrée dans `CARDS` (`cards.ts`) avec une fonction
 `options(ctx)` qui renvoie toutes les options possibles (`path` = cases à toucher,
 `label` = choix final éventuel, `result` = position obtenue). L'interface et le bot
-la prennent en charge automatiquement. Il faut aussi ajouter son nom et son texte dans
-`private/cards.json`, son illustration `private/cards/<id>.webp`, une consigne dans
-`STEP_HINTS`, puis rechiffrer le coffre (`npm run vault`).
+la prennent en charge automatiquement. Il faut aussi ajouter son nom, son texte et son
+illustration au coffre (`npm run vault`), et une consigne dans `STEP_HINTS`.
 
 **Méfiance de l'ordinateur** : il ne voit pas la main adverse, mais se méfie des cartes qu'il
 n'a jamais vues, si leur criticité habituelle (`criticality.ts`) atteint le seuil de son niveau
@@ -140,6 +138,9 @@ après une veille ou un rechargement. Côté contrôleur, l'adversaire prend la 
 - Moteur : [Stockfish.js](https://github.com/nmrugg/stockfish.js), sous GPLv3. L'appli qui
   l'embarque doit donc être distribuée sous GPLv3.
 - Pièces : jeu « cburnett » (Colin M.L. Burnett), sous CC BY-SA 3.0.
-- Noms, textes et illustrations des cartes : propriété des auteurs du jeu original, non
+- Noms, textes et illustrations des cartes : propriété des auteurs du jeu original (Pierre
+  Cléquin, Bruno Faidutti, Gérard Mathieu, éditions Variantes, voir « Jeu original »), non
   distribués avec ce code (voir « Données protégées »).
-- Police des cartes : reprise du projet précédent.
+- Police des cartes : [Super Comic](https://www.fontspace.com/super-comic-font-f100103), par
+  [All Super Font](https://www.fontspace.com/all-super-font) (2023), gratuite pour un usage
+  personnel et commercial (freeware).
