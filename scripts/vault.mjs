@@ -1,5 +1,6 @@
 // Construit le coffre chiffré public/vault.bin à partir des données protégées de private/ :
-//   private/cards.json     { "<id>": { "title": "…", "text": "…" } }
+//   private/cards.json        { "<id>": { "title": "…", "text": "…" } }   (français, la référence)
+//   private/cards.<lang>.json  idem, traduit (ex. cards.en.json) ; une carte absente y reste en français
 //   private/cards/<id>.webp, private/cards/card-back.webp
 //
 //   npm run vault                         (demande le mot de passe)
@@ -11,9 +12,9 @@
 //
 // Format : "TPV1" | u32 longueur de l'en-tête | en-tête JSON (en clair) | chiffré AES-GCM.
 // L'en-tête (sel, IV, itérations, identifiants) sert de données authentifiées.
-// Le clair : u32 longueur du JSON | JSON { texts, images: { id: [début, longueur] } } | images.
+// Le clair : u32 longueur du JSON | JSON { texts: { <lang>: { id: { title, text } } }, images: { id: [début, longueur] } } | images.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { webcrypto as crypto } from 'node:crypto';
 
@@ -79,8 +80,18 @@ function fail(msg) {
 // ---------- données ----------
 
 if (!existsSync('private/cards.json')) fail('private/cards.json introuvable (voir README, « Données protégées »).');
-const texts = JSON.parse(readFileSync('private/cards.json', 'utf8'));
-const ids = Object.keys(texts).sort();
+const reference = JSON.parse(readFileSync('private/cards.json', 'utf8'));
+const ids = Object.keys(reference).sort();
+const texts = { fr: reference };
+for (const file of readdirSync('private').filter((f) => /^cards\.[a-z]{2}\.json$/.test(f))) {
+  const lang = file.slice(6, 8);
+  const t = JSON.parse(readFileSync(`private/${file}`, 'utf8'));
+  const missing = ids.filter((id) => !t[id]?.title || !t[id]?.text);
+  if (missing.length) console.warn(`⚠ ${file} : ${missing.length} carte(s) non traduite(s) (${missing.join(', ')}), affichées en français.`);
+  const extra = Object.keys(t).filter((id) => !reference[id]);
+  if (extra.length) fail(`${file} : identifiants inconnus (${extra.join(', ')}).`);
+  texts[lang] = t;
+}
 const imageIds = [...ids, 'card-back'];
 const blobs = [];
 const images = {};
@@ -126,4 +137,4 @@ const headerBytes = enc.encode(JSON.stringify({ v: 1, iterations, salt: b64(salt
 const key = await deriveKey(password, salt, iterations);
 const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: headerBytes }, key, plain));
 writeFileSync(OUT, concat(enc.encode(MAGIC), u32(headerBytes.length), headerBytes, cipher));
-console.log(`✓ ${OUT} : ${ids.length} cartes, ${(cipher.length / 1024).toFixed(0)} Ko${fresh ? ' (nouveau mot de passe)' : ''}`);
+console.log(`✓ ${OUT} : ${ids.length} cartes (${Object.keys(texts).join(', ')}), ${(cipher.length / 1024).toFixed(0)} Ko${fresh ? ' (nouveau mot de passe)' : ''}`);

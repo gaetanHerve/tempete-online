@@ -231,7 +231,7 @@ describe('bot', () => {
         }
       }
     }
-    const botCards = g.log.filter((l) => l.color === 'b' && l.card).map((l) => l.text);
+    const botCards = g.log.filter((l) => l.color === 'b' && l.card).map((l) => JSON.stringify(l.msg));
     console.log('Cartes jouées par le bot :', botCards, g.result);
     // la partie va loin, ou l'ordinateur a gagné (le joueur aléatoire peut se faire mater vite)
     expect(g.log.length > 20 || g.result?.winner === 'b').toBe(true);

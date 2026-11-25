@@ -2,7 +2,8 @@
 
 Les échecs, avec des cartes qui chamboulent tout. On joue contre l'ordinateur, à deux sur le
 même appareil, ou en ligne. C'est une appli web statique, installable sur téléphone (PWA) :
-le mode en ligne s'appuie sur Firebase, sans serveur à héberger.
+le mode en ligne s'appuie sur Firebase, sans serveur à héberger. L'interface existe en
+français et en anglais (langue du navigateur au premier lancement, puis au choix).
 
 ## Jeu original
 
@@ -82,6 +83,10 @@ dérivée du mot de passe par PBKDF2). Au premier lancement, l'appli demande le 
 transmis à part aux joueurs, déchiffre le coffre et mémorise la clé sur l'appareil. Sans le mot
 de passe, le fichier publié est illisible.
 
+Les traductions des noms et textes sont protégées de la même façon : `private/cards.json` est
+la référence (français), `private/cards.<langue>.json` ses traductions (ex. `cards.en.json`),
+toutes chiffrées dans le coffre par `npm run vault`. Une carte non traduite s'affiche en français.
+
 ## Architecture
 
 ```
@@ -95,14 +100,24 @@ src/core/          logique pure, sans interface (testable sous Node)
 src/engine/        Stockfish 18 lite (WASM, single-thread) dans un Web Worker
 src/lib/           contrôleur Svelte (sièges humain/ordinateur, sélection, sauvegarde),
                    coffre chiffré des cartes (vault.ts)
+src/i18n/          textes de l'interface : fr.ts (référence, ses clés font foi), en.ts
 src/ui/            composants (plateau animé, cartes, écrans)
 ```
+
+**Textes et langues** : le cœur ne rédige aucune phrase. Résumés d'options, consignes et
+entrées du journal sont des messages `{ k: clé, p: paramètres }` (`core/msg.ts`), mis en mots
+par l'interface dans la langue choisie : le journal se retraduit si l'on change de langue, et en
+ligne chaque joueur voit la partie dans la sienne. Les `label` d'options restent des
+identifiants stables (ils voyagent dans les actions), traduits à l'affichage. Ajouter une
+langue : un dictionnaire `src/i18n/<langue>.ts` (le typage exige toutes les clés), son entrée
+dans `LOCALES`, et `private/cards.<langue>.json`.
 
 **Ajouter une carte** : ajouter une entrée dans `CARDS` (`cards.ts`) avec une fonction
 `options(ctx)` qui renvoie toutes les options possibles (`path` = cases à toucher,
 `label` = choix final éventuel, `result` = position obtenue). L'interface et le bot
 la prennent en charge automatiquement. Il faut aussi ajouter son nom, son texte et son
-illustration au coffre (`npm run vault`), et une consigne dans `STEP_HINTS`.
+illustration au coffre (`npm run vault`), dans chaque langue, et ses consignes d'étapes
+(`steps` dans `src/i18n/fr.ts` et `en.ts`).
 
 **Méfiance de l'ordinateur** : il ne voit pas la main adverse, mais se méfie des cartes qu'il
 n'a jamais vues, si leur criticité habituelle (`criticality.ts`) atteint le seuil de son niveau

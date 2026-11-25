@@ -8,8 +8,10 @@
 
 import { BOT_LEVELS, decide, duelThrow, type BotLevel } from '../core/bot';
 import { CARD_BY_ID, isDead, type CardOption } from '../core/cards';
+import type { Msg } from '../core/msg';
+import { fmt, t } from '../i18n/index.svelte';
 import type { NormalMove } from '../core/chess';
-import { actor, apply, canDiscard, canSkip, cardOptions, choiceStep, clashingRules, mustAct, newGame, normalMoves, playableCards, resign, TAKES_CARDS, type Action, type GameState, type Throw } from '../core/game';
+import { actor, apply, canDiscard, canSkip, cardOptions, choiceStep, clashingRules, IllegalAction, mustAct, newGame, normalMoves, playableCards, resign, TAKES_CARDS, type Action, type GameState, type LogEntry, type Throw } from '../core/game';
 import { CARD_PIECE_DELAY, play as playSound } from './sound';
 import { inCheck, kingSq, toFen, type Color, type PieceType, type Sq } from '../core/position';
 import { createRoom, joinRoom, openRoom, type ChatMessage, type NetAction, type NetEntry, type Room, type RoomMeta } from './online';
@@ -25,7 +27,7 @@ const CHAT_READ_KEY = 'tempete2.chat.';
 
 export interface Reveal {
   card: string;
-  summary: string;
+  summary: Msg | string;
   color: Color;
   /** Cartes dont l'effet en cours prend fin (règles contraires). */
   ends: string[];
@@ -38,7 +40,7 @@ export interface CardSelection {
   chosen: CardOption | null;
   /** Choix imposé par une carte en cours (pas d'annulation possible). */
   forced?: boolean;
-  prompt?: string;
+  prompt?: Msg;
 }
 
 export type Mode = 'bot' | 'local' | 'online';
@@ -80,7 +82,6 @@ export interface Prefs {
 }
 
 export type Theme = 'auto' | 'light' | 'dark';
-export const THEME_LABEL: Record<Theme, string> = { auto: 'automatique', light: 'clair', dark: 'sombre' };
 
 /** Applique le thème à la page (attribut data-theme sur <html>, couleur de la barre du navigateur). */
 export function applyTheme(theme: Theme = 'auto') {
@@ -95,10 +96,23 @@ export function applyTheme(theme: Theme = 'auto') {
 /** Écran de passage entre deux joueurs, avec ce que l'adversaire a fait entre-temps. */
 export interface Handoff {
   color: Color;
-  news: string[];
+  news: Msg[];
 }
 
-const COLOR_NAME: Record<Color, string> = { w: 'Blancs', b: 'Noirs' };
+/** Comment désigner l'adversaire dans les messages (cf. src/i18n). */
+export type Who = 'bot' | 'online' | Color;
+
+/** Message à montrer pour une action refusée. */
+const failure = (e: unknown) => (e instanceof IllegalAction ? t(e.key) : t('ctl.actionFailed'));
+
+/** Ce qu'a fait une carte, sans son titre (entrée « Carte : effet » du journal). */
+const effectOf = (e: LogEntry): Msg | string => (e.msg.k === 'log.card' && e.msg.p?.effect ? (e.msg.p.effect as Msg | string) : e.msg);
+
+/** Parties sauvegardées avant les traductions : leur journal était déjà rédigé (en français). */
+function upgrade(g: GameState): GameState {
+  for (const e of g.log as (LogEntry & { text?: string })[]) if (!e.msg) e.msg = { k: 'raw', p: { text: e.text ?? '' } };
+  return g;
+}
 const BUILD = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__.split(' ')[0] : 'dev';
 
 interface Save {
@@ -201,13 +215,13 @@ export class GameController {
     return this.color === 'w' ? 'b' : 'w';
   }
 
-  /** Comment désigner l'adversaire dans les messages (« l'ordinateur », « les Noirs »…). */
-  get opponent(): string {
-    return this.mode === 'local' ? `les ${COLOR_NAME[this.bot]}` : this.mode === 'online' ? "l'adversaire" : "l'ordinateur";
+  /** Qui est l'adversaire, pour les messages (« l'ordinateur », « les Noirs »…). */
+  get who(): Who {
+    return this.mode === 'local' ? this.bot : this.mode === 'online' ? 'online' : 'bot';
   }
 
   colorName(c: Color): string {
-    return COLOR_NAME[c];
+    return t(`color.${c}`);
   }
 
   /** Est-ce au joueur humain d'agir (son tour, ou une réaction au coup adverse) ? Hors duel. */
@@ -252,7 +266,7 @@ export class GameController {
     this.mode = save.mode ?? 'bot';
     this.human = save.human;
     this.level = BOT_LEVELS.find((l) => l.id === save.level) ?? BOT_LEVELS[1];
-    this.reset(save.game, save.seen);
+    this.reset(upgrade(save.game), save.seen);
     return true;
   }
 
@@ -302,7 +316,7 @@ export class GameController {
     const g = this.game!;
     const c = this.color;
     // (à deux, tout se raisonne par couleur jouée : ce qu'a fait l'autre couleur depuis mon dernier passage)
-    const news = g.log.slice(this.seen[c]).filter((e) => e.color !== c).map((e) => e.text);
+    const news = g.log.slice(this.seen[c]).filter((e) => e.color !== c).map((e) => e.msg);
     this.handoff = { color: c, news };
   }
 
@@ -336,7 +350,7 @@ export class GameController {
       if (!mine(prev) && mine(next)) playSound('turn', 0.25);
     }
     // événements à signaler (fin d'une règle, Voyance qui se réalise…)
-    if (prev) for (const e of next.log.slice(prev.log.length)) if (e.notice) this.notify(e.text);
+    if (prev) for (const e of next.log.slice(prev.log.length)) if (e.notice) this.notify(fmt(e.msg));
     this.selected = null;
     if (this.mode === 'local') {
       // ce que le joueur actuel vient de faire, il l'a vu
@@ -389,7 +403,7 @@ export class GameController {
       } catch (e) {
         console.error(e);
         this.thinking = false;
-        this.notify("L'ordinateur a eu un souci… réessayez.");
+        this.notify(t('ctl.botError'));
         return;
       }
       if (token !== this.token) return;
@@ -415,18 +429,18 @@ export class GameController {
 
   /** Montre au joueur ce que l'adversaire vient de faire ; renvoie la carte à dévoiler, s'il y en a une. */
   private presentOpponent(action: NetAction, prev: GameState, next: GameState): Reveal | null {
-    const who = this.mode === 'online' ? "L'adversaire" : "L'ordinateur";
-    if (action.type === 'discard') this.notify(`${who} défausse « ${CARD_BY_ID[action.card].title} »`);
-    if (action.type === 'choose') this.notify(`${who} : ${next.log[next.log.length - 1].text.replace(/^[^:]+:\s*/, '')}`);
-    if (action.type === 'resign') this.notify(`${who} abandonne`);
-    if (action.type === 'undo') this.notify(`${who} reprend son coup`);
+    const who = this.mode === 'online' ? 'online' : 'bot';
+    if (action.type === 'discard') this.notify(t('ctl.oppDiscards', { who, card: action.card }));
+    if (action.type === 'choose') this.notify(t('ctl.oppChose', { who, what: effectOf(next.log[next.log.length - 1]) }));
+    if (action.type === 'resign') this.notify(t('ctl.oppResigns', { who }));
+    if (action.type === 'undo') this.notify(t('ctl.oppUndoes', { who }));
     if (action.type !== 'card') return null;
     const ends = clashingRules(prev, action.card);
     // carte en suspens (le joueur peut l'annuler) : pas encore dans l'historique
     const pending = next.pending?.card === action.card && !next.pending.counters.length ? next.pending : null;
     // (l'entrée de la carte elle-même : une règle qui prend fin s'inscrit après elle)
     const entry = next.log.findLast((e) => e.card === action.card) ?? next.log[next.log.length - 1];
-    const summary = pending ? pending.option.summary : entry.text.replace(/^[^:]+:\s*/, '');
+    const summary = pending ? pending.option.summary : effectOf(entry);
     return { card: action.card, summary, color: this.bot, ends };
   }
 
@@ -472,7 +486,7 @@ export class GameController {
     try {
       next = apply(this.game, action);
     } catch (e) {
-      this.notify(e instanceof Error ? e.message : 'Action impossible');
+      this.notify(failure(e));
       return;
     }
     this.selection = null;
@@ -625,7 +639,7 @@ export class GameController {
     this.chat = earlyChat.map((m) => this.line(m));
     this.unread = this.chat.filter((l) => !l.mine && l.t > this.readUpTo).length;
     ready = true;
-    if (meta.build !== BUILD) this.notify('Attention : l’adversaire n’a peut-être pas la même version de l’appli.');
+    if (meta.build !== BUILD) this.notify(t('ctl.versionMismatch'));
     this.save();
     void this.pump();
   }
@@ -700,7 +714,7 @@ export class GameController {
       return true;
     } catch (e) {
       console.error(e);
-      this.notify('Message non envoyé : vérifiez la connexion.');
+      this.notify(t('ctl.chatFailed'));
       return false;
     }
   }
@@ -714,7 +728,7 @@ export class GameController {
     try {
       next = step(g, action);
     } catch (e) {
-      this.notify(e instanceof Error ? e.message : 'Action impossible');
+      this.notify(failure(e));
       return;
     }
     this.selection = null;
@@ -727,7 +741,7 @@ export class GameController {
     } catch (e) {
       console.error(e);
       if (this.room === room && this.online) this.online = { ...this.online, sending: false };
-      this.notify('Envoi impossible : vérifiez la connexion et réessayez.');
+      this.notify(t('ctl.sendFailed'));
       return;
     }
     // place déjà prise (l'adversaire a écrit au même moment) : on renverra après son action
@@ -771,7 +785,7 @@ export class GameController {
           next = prev;
         }
         if (next === prev || toFen(next.pos) !== e.fen) {
-          this.online = { ...this.online, broken: 'Les deux appareils ne voient plus la même partie. Mettez l’appli à jour des deux côtés (rechargez la page), puis reprenez la partie.' };
+          this.online = { ...this.online, broken: t('ctl.desync') };
           return;
         }
         this.applied++;
@@ -789,48 +803,48 @@ export class GameController {
 
   // ---------- cartes ----------
 
-  /** Titres des effets en cours auxquels cette carte mettrait fin si on la jouait. */
+  /** Cartes dont l'effet en cours prendrait fin si on jouait celle-ci. */
   ends(id: string): string[] {
-    return this.game ? clashingRules(this.game, id).map((r) => CARD_BY_ID[r].title) : [];
+    return this.game ? clashingRules(this.game, id) : [];
   }
 
   /** Pourquoi une carte de la main n'est pas jouable maintenant (ou null si elle l'est). */
   whyNot(card: string): string | null {
     const g = this.game;
     if (!g) return '…';
-    if (g.phase === 'over') return 'La partie est terminée';
-    const t = CARD_BY_ID[card].timing;
-    if (g.phase === 'duel') return 'Un duel est en cours';
-    if (g.phase === 'choice') return 'Un choix est en cours';
-    if ((g.rules ?? []).some((r) => r.card === 'origines')) return 'Origines : aucune carte tant qu’aucun Roi n’a été mis en échec';
-    if (actor(g) !== this.color) return t === 'reaction' ? 'Se joue juste après un coup adverse' : 'Attendez votre tour';
+    if (g.phase === 'over') return t('why.over');
+    const timing = CARD_BY_ID[card].timing;
+    if (g.phase === 'duel') return t('why.duel');
+    if (g.phase === 'choice') return t('why.choice');
+    if ((g.rules ?? []).some((r) => r.card === 'origines')) return t('why.origines');
+    if (actor(g) !== this.color) return timing === 'reaction' ? t('why.afterOppMove') : t('why.wait');
     if (g.phase === 'counter') {
-      if (t !== 'counter') return 'Seuls Non et Niet peuvent répondre à une carte';
-      return cardOptions(g, card).length ? null : 'Une seule carte par tour';
+      if (timing !== 'counter') return t('why.onlyCounters');
+      return cardOptions(g, card).length ? null : t('why.oneCard');
     }
-    if (t === 'counter') return 'Se joue juste après une carte adverse';
+    if (timing === 'counter') return t('why.afterOppCard');
     if (g.phase === 'reaction') {
-      if (t !== 'reaction') return 'Se joue pendant votre tour';
-      if (g.reacted) return 'Une seule carte pendant le tour adverse';
-      return cardOptions(g, card).length ? null : 'Ne s’applique pas à ce coup';
+      if (timing !== 'reaction') return t('why.duringYourTurn');
+      if (g.reacted) return t('why.oneReaction');
+      return cardOptions(g, card).length ? null : t('why.notThisMove');
     }
-    if (t === 'reaction') return 'Se joue juste après un coup adverse';
+    if (timing === 'reaction') return t('why.afterOppMove');
     if (CARD_BY_ID[card].turnEffect === 'rebelote') {
-      if (!g.cardPlayed) return 'Se joue après une première carte, à ce tour';
-      if (g.rebelote || g.extra) return 'Une seule fois par tour';
-    } else if (g.cardPlayed && !g.extra) return 'Une seule carte par tour';
+      if (!g.cardPlayed) return t('why.afterFirstCard');
+      if (g.rebelote || g.extra) return t('why.oncePerTurn');
+    } else if (g.cardPlayed && !g.extra) return t('why.oneCard');
     if (isDead(card, g.pos, g.active)) {
       return g.phase === 'main'
-        ? 'Cette carte ne peut plus servir dans cette partie. Vous pourrez la défausser après votre coup.'
-        : 'Cette carte ne peut plus servir dans cette partie';
+        ? t('why.deadNow')
+        : t('why.dead');
     }
-    if (t === 'replace' && canSkip(g)) return 'Provocation : prenez une pièce ou passez votre tour';
-    if (g.phase === 'main' && t === 'after') return 'Se joue après votre coup';
-    if (g.phase === 'after' && (t === 'replace' || t === 'before')) return 'Se joue avant votre coup';
+    if (timing === 'replace' && canSkip(g)) return t('why.provocation');
+    if (g.phase === 'main' && timing === 'after') return t('why.afterMove');
+    if (g.phase === 'after' && (timing === 'replace' || timing === 'before')) return t('why.beforeMove');
     if (!cardOptions(g, card).length) {
       return (g.rules ?? []).some((r) => r.card === 'cessezLeFeu') && TAKES_CARDS.has(card)
-        ? `${CARD_BY_ID.cessezLeFeu.title} : aucune prise possible pour le moment`
-        : 'Aucune cible possible pour le moment';
+        ? t('why.ceasefire')
+        : t('why.noTarget');
     }
     return null;
   }

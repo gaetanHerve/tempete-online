@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { t } from '../i18n/index.svelte';
   import { VaultUnavailable, unlockWithPassword } from '../lib/vault';
+  import LangSwitch from './LangSwitch.svelte';
 
   interface Props {
     onunlock: () => void;
@@ -17,9 +19,9 @@
     error = '';
     try {
       if (await unlockWithPassword(password)) onunlock();
-      else error = 'Mot de passe incorrect.';
+      else error = t('unlock.wrong');
     } catch (err) {
-      error = err instanceof VaultUnavailable ? 'Impossible de charger les cartes. Vérifiez la connexion et réessayez.' : 'Une erreur est survenue. Réessayez.';
+      error = err instanceof VaultUnavailable ? t('unlock.unavailable') : t('common.error');
     } finally {
       busy = false;
     }
@@ -27,15 +29,16 @@
 </script>
 
 <main class="unlock">
-  <img class="logo" src="{import.meta.env.BASE_URL}logo.jpg" alt="Tempête sur l'échiquier" />
+  <img class="logo" src="{import.meta.env.BASE_URL}logo.jpg" alt={t('app.name')} />
   <form class="panel" onsubmit={submit}>
-    <h2>Accès réservé</h2>
-    <p>Saisissez le mot de passe qui vous a été transmis. Il ne sera demandé qu'une fois sur cet appareil.</p>
+    <h2>{t('unlock.title')}</h2>
+    <p>{t('unlock.intro')}</p>
     <!-- svelte-ignore a11y_autofocus -->
-    <input type="password" autocomplete="current-password" aria-label="Mot de passe" placeholder="Mot de passe" bind:value={password} autofocus disabled={busy} />
+    <input type="password" autocomplete="current-password" aria-label={t('unlock.password')} placeholder={t('unlock.password')} bind:value={password} autofocus disabled={busy} />
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button type="submit" class="btn primary wide" disabled={!password || busy}>{busy ? 'Ouverture…' : 'Entrer'}</button>
+    <button type="submit" class="btn primary wide" disabled={!password || busy}>{busy ? t('unlock.opening') : t('unlock.enter')}</button>
   </form>
+  <LangSwitch />
 </main>
 
 <style>

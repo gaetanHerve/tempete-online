@@ -3,6 +3,8 @@
 // un futur mode 2 joueurs n'aura qu'à échanger les actions entre appareils.
 
 import { applyMove, legalMoves, type NormalMove } from './chess';
+import { msg, type Msg } from './msg';
+import type { MsgKey } from '../i18n/fr';
 import { CARD_BY_ID, DECK_CARDS, isDead, type CardContext, type CardOption, type FollowStep } from './cards';
 import { clonePos, fileOf, finishCardEffect, inCheck, rankOf, other, startPosition, toFen, type Color, type Piece, type PieceType, type Position, type Sq } from './position';
 
@@ -57,9 +59,13 @@ export interface Duel {
   win: Position;
 }
 
+/** Fin de partie : échec et mat, pat, abandon. */
+export type EndReason = 'mate' | 'stalemate' | 'resign';
+
 export interface LogEntry {
   color: Color;
-  text: string;
+  /** Ce qui s'est passé, mis en mots par l'interface (anciennes sauvegardes : clé `raw`). */
+  msg: Msg;
   card?: string;
   /** Événement à signaler au joueur (fin d'une règle, Voyance qui se réalise…). */
   notice?: boolean;
@@ -127,7 +133,7 @@ export interface GameState {
   lastMove: NormalMove | null;
   lastEvent: LastEvent | null;
   log: LogEntry[];
-  result: { winner: Color | null; reason: string } | null;
+  result: { winner: Color | null; reason: EndReason } | null;
   rng: number;
   ply: number;
   /** L'état d'avant le coup qui vient d'être joué, tant qu'il peut encore être annulé. */
@@ -308,7 +314,7 @@ export function cardOptions(state: GameState, cardId: string): CardOption[] {
   if (rule(state, 'origines')) return []; // plus aucune carte tant qu'aucun Roi n'est en échec
   const def = CARD_BY_ID[cardId];
   if (def.timing === 'replace' && canSkip(state)) return []; // Provocation : prendre ou passer
-  if (def.hand) return [{ path: [], result: state.pos, marks: [], summary: def.title }];
+  if (def.hand) return [{ path: [], result: state.pos, marks: [], summary: msg(def.hand === 'redraw' ? 'fx.newHand' : 'fx.handsSwapped') }];
   const ctx = cardContext(state);
   const options = def.options!(ctx);
   // Cessez-le-feu : aucune prise, même par une carte
@@ -406,11 +412,16 @@ export function canSkip(state: GameState): boolean {
 
 // ---------- réducteur ----------
 
-export class IllegalAction extends Error {}
+/** Action refusée par le réducteur ; `key` est le message à montrer au joueur (src/i18n). */
+export class IllegalAction extends Error {
+  constructor(readonly key: MsgKey) {
+    super(key);
+  }
+}
 
 export function apply(prev: GameState, action: Action): GameState {
   if (action.type === 'undo') {
-    if (!canUndo(prev)) throw new IllegalAction('Plus rien à reprendre');
+    if (!canUndo(prev)) throw new IllegalAction('err.nothingToUndo');
     return structuredClone(prev.undo!);
   }
   const state = applyAction(prev, action);
@@ -433,17 +444,17 @@ export function apply(prev: GameState, action: Action): GameState {
 }
 
 function applyAction(prev: GameState, action: Action): GameState {
-  if (prev.phase === 'over') throw new IllegalAction('Partie terminée');
+  if (prev.phase === 'over') throw new IllegalAction('err.over');
   const state: GameState = structuredClone(prev);
   const me = state.active;
 
   switch (action.type) {
     case 'move': {
-      if (state.phase !== 'main') throw new IllegalAction('Vous avez déjà joué votre coup');
+      if (state.phase !== 'main') throw new IllegalAction('err.alreadyMoved');
       const m = normalMoves(state).find(
         (x) => x.from === action.from && x.to === action.to && (x.promotion ?? undefined) === (action.promotion ?? (x.promotion ? 'q' : undefined)),
       );
-      if (!m) throw new IllegalAction('Coup illégal');
+      if (!m) throw new IllegalAction('err.illegalMove');
       const seer = (state.rules ?? []).find((r) => r.card === 'voyance' && targets(state, r));
       // (pas d'annulation pour un Roi en échec : il y resterait, ce qui est illégal)
       if (seer && seer.sq === m.from && !inCheck(state.pos.board, me)) {
@@ -452,7 +463,7 @@ function applyAction(prev: GameState, action: Action): GameState {
         endRule(state, seer);
         state.ply++;
         state.lastEvent = { color: seer.owner, marks: [m.from], card: 'voyance' };
-        state.log.push({ color: seer.owner, card: 'voyance', text: `${CARD_BY_ID.voyance.title} avait vu juste : ${m.san} est annulé`, notice: true });
+        state.log.push({ color: seer.owner, card: 'voyance', msg: msg('log.voyance', { san: m.san }), notice: true });
         // (tour perdu : la position passe aussi à l'adversaire, sinon il ne pourrait pas jouer)
         passTurn(state);
         return state;
@@ -462,7 +473,7 @@ function applyAction(prev: GameState, action: Action): GameState {
       state.lastPly = { before: prev.pos, move: m, color: me };
       state.phase = 'after';
       state.lastEvent = { color: me, from: m.from, to: m.to, marks: [] };
-      state.log.push({ color: me, text: m.san });
+      state.log.push({ color: me, msg: msg('log.move', { san: m.san }) });
       state.ply++;
       state.forbidden = null;
       // l'adversaire peut-il réagir ? sinon, phase « après » : le joueur valide lui-même la fin de son tour
@@ -478,7 +489,7 @@ function applyAction(prev: GameState, action: Action): GameState {
     case 'card': {
       const options = cardOptions(prev, action.card);
       const opt = options.find((o) => samePath(o.path, action.path) && (o.label ?? undefined) === (action.label ?? undefined));
-      if (!opt) throw new IllegalAction('Carte non jouable ainsi');
+      if (!opt) throw new IllegalAction('err.cardNotPlayable');
       const who = actor(prev);
       const def = CARD_BY_ID[action.card];
       const hand = state.hands[who];
@@ -493,7 +504,7 @@ function applyAction(prev: GameState, action: Action): GameState {
         draw(state, who);
         const target = CARD_BY_ID[p.counters.at(-1)?.card ?? p.card];
         p.counters.push({ color: who, card: action.card });
-        state.log.push({ color: who, card: action.card, text: `${def.title} : annule « ${target.title} »` });
+        state.log.push({ color: who, card: action.card, msg: msg('log.card', { card: def.id, effect: msg('fx.counter', { card: target.id }) }) });
         return canCounter(state, other(who)) ? state : resolvePending(state);
       }
 
@@ -507,28 +518,28 @@ function applyAction(prev: GameState, action: Action): GameState {
     }
 
     case 'discard': {
-      if (!canDiscard(prev, action.card)) throw new IllegalAction('Cette carte ne peut pas être défaussée');
+      if (!canDiscard(prev, action.card)) throw new IllegalAction('err.cannotDiscard');
       const hand = state.hands[me];
       hand.splice(hand.indexOf(action.card), 1);
       state.discard.push(action.card);
       draw(state, me);
       state.cardPlayed = true;
       state.ply++;
-      state.log.push({ color: me, card: action.card, text: `Défausse : ${CARD_BY_ID[action.card].title}` });
+      state.log.push({ color: me, card: action.card, msg: msg('log.discard', { card: action.card }) });
       // toujours en phase « après » : le joueur termine ensuite son tour
       return state;
     }
 
     case 'undo':
-      throw new IllegalAction('Plus rien à reprendre'); // (traité par apply)
+      throw new IllegalAction('err.nothingToUndo'); // (traité par apply)
 
     case 'replay': {
-      if (!canReplay(state)) throw new IllegalAction('Rien à rejouer');
+      if (!canReplay(state)) throw new IllegalAction('err.nothingToReplay');
       const r = state.reserve![me];
       r.splice(r.indexOf('jePasse'), 1);
       state.discard.push('jePasse');
       state.ply++;
-      state.log.push({ color: me, card: 'jePasse', text: `${CARD_BY_ID.jePasse.title} : rejoue un coup` });
+      state.log.push({ color: me, card: 'jePasse', msg: msg('log.card', { card: 'jePasse', effect: msg('fx.replays') }) });
       // l'adversaire « passe » : c'est de nouveau à moi dans la position
       state.pos = finishCardEffect(clonePos(state.pos), true);
       state.phase = 'main';
@@ -537,16 +548,16 @@ function applyAction(prev: GameState, action: Action): GameState {
     }
 
     case 'skip': {
-      if (!canSkip(state)) throw new IllegalAction('Vous ne pouvez pas passer votre tour');
+      if (!canSkip(state)) throw new IllegalAction('err.cannotPass');
       state.ply++;
-      state.log.push({ color: me, card: 'provocation', text: `${CARD_BY_ID.provocation.title} : passe son tour` });
+      state.log.push({ color: me, card: 'provocation', msg: msg('log.card', { card: 'provocation', effect: msg('fx.passes') }) });
       passTurn(state);
       return state;
     }
 
     case 'pass': {
       if (state.phase === 'counter') return resolvePending(state);
-      if (state.phase !== 'reaction') throw new IllegalAction('Rien à laisser passer');
+      if (state.phase !== 'reaction') throw new IllegalAction('err.nothingToAllow');
       state.phase = 'after';
       state.reactTo = null;
       return state;
@@ -558,18 +569,18 @@ function applyAction(prev: GameState, action: Action): GameState {
     case 'choose': {
       const step = choiceStep(prev);
       const opt = step?.options.find((o) => samePath(o.path, action.path) && (o.label ?? undefined) === (action.label ?? undefined));
-      if (!step || !opt) throw new IllegalAction('Choix impossible');
+      if (!step || !opt) throw new IllegalAction('err.badChoice');
       const c = state.choice!;
       state.pos = opt.result;
       if (opt.path.length) c.moved.push(opt.path[opt.path.length - 1]);
       state.lastEvent = { color: step.chooser, marks: opt.marks, card: c.card };
-      state.log.push({ color: step.chooser, card: c.card, text: `${CARD_BY_ID[c.card].title} : ${opt.summary}` });
+      state.log.push({ color: step.chooser, card: c.card, msg: msg('log.card', { card: c.card, effect: opt.summary }) });
       if (opt.replay || !choiceStep(state)) finishChoice(state, !!opt.replay);
       return state;
     }
 
     case 'endTurn': {
-      if (state.phase !== 'after') throw new IllegalAction('Jouez d’abord votre coup');
+      if (state.phase !== 'after') throw new IllegalAction('err.moveFirst');
       endTurn(state);
       return state;
     }
@@ -591,7 +602,7 @@ function applyCard(state: GameState, cardId: string, opt: CardOption): GameState
     state.reserve ??= { w: [], b: [] };
     state.reserve[me].push(cardId);
     draw(state, me);
-    state.log.push({ color: me, card: cardId, text: `${def.title} : passe son tour (carte gardée en réserve)` });
+    state.log.push({ color: me, card: cardId, msg: msg('log.card', { card: cardId, effect: msg('fx.passKept') }) });
     passTurn(state);
     return state;
   }
@@ -600,13 +611,13 @@ function applyCard(state: GameState, cardId: string, opt: CardOption): GameState
     draw(state, me);
     state.extra = 2;
     state.rebelote = true;
-    state.log.push({ color: me, card: cardId, text: `${def.title} : deux cartes de plus ce tour-ci` });
+    state.log.push({ color: me, card: cardId, msg: msg('log.card', { card: cardId, effect: msg('fx.rebelote') }) });
     return state;
   }
   if (def.turnEffect === 'swap') {
     // la carte reste en jeu pendant l'échange, et ne part à la défausse qu'à la fin
     draw(state, me);
-    state.log.push({ color: me, card: cardId, text: `${def.title} : les joueurs échangent leurs places pour trois tours` });
+    state.log.push({ color: me, card: cardId, msg: msg('log.card', { card: cardId, effect: msg('fx.swap') }) });
     swapSeats(state);
     // trois tours chacun à partir du tour suivant
     state.swap = { until: (state.turn ?? 0) + 7 };
@@ -617,14 +628,14 @@ function applyCard(state: GameState, cardId: string, opt: CardOption): GameState
     state.discard.push(cardId, ...hand);
     state.hands[me] = [];
     draw(state, me, HAND_SIZE);
-    state.log.push({ color: me, card: def.id, text: `${def.title} : nouvelle main` });
+    state.log.push({ color: me, card: def.id, msg: msg('log.card', { card: def.id, effect: msg('fx.newHand') }) });
   } else if (def.hand === 'swap') {
     state.discard.push(cardId);
     const mine = state.hands[me];
     state.hands[me] = state.hands[other(me)];
     state.hands[other(me)] = mine;
     draw(state, other(me));
-    state.log.push({ color: me, card: def.id, text: `${def.title} : les mains sont échangées` });
+    state.log.push({ color: me, card: def.id, msg: msg('log.card', { card: def.id, effect: msg('fx.handsSwapped') }) });
   } else {
     // une carte à règle temporaire reste en jeu tant que sa règle dure (cf. endRule)
     if (!def.rule) state.discard.push(cardId);
@@ -633,7 +644,7 @@ function applyCard(state: GameState, cardId: string, opt: CardOption): GameState
     // (Voyance : la pièce désignée reste secrète, rien n'est surligné)
     const secret = def.id === 'voyance';
     state.lastEvent = { color: me, marks: opt.marks, card: def.id, from: secret ? undefined : opt.path[0], to: secret ? undefined : opt.path[opt.path.length - 1] };
-    state.log.push({ color: me, card: def.id, text: `${def.title} : ${opt.summary}` });
+    state.log.push({ color: me, card: def.id, msg: msg('log.card', { card: def.id, effect: opt.summary }) });
     if (def.rule) {
       const sq = opt.path[0];
       for (const r of state.rules ?? []) if (r.card === cardId) endRule(state, r); // (une seule carte de chaque : par prudence)
@@ -642,7 +653,7 @@ function applyCard(state: GameState, cardId: string, opt: CardOption): GameState
       for (const r of state.rules ?? [])
         if (clashes.includes(r.card)) {
           endRule(state, r);
-          state.log.push({ color: r.owner, card: r.card, text: `${def.title} met fin à ${CARD_BY_ID[r.card].title}`, notice: true });
+          state.log.push({ color: r.owner, card: r.card, msg: msg('log.ends', { card: def.id, ended: r.card }), notice: true });
         }
       state.rules = [
         ...(state.rules ?? []).filter((r) => r.card !== cardId && !clashes.includes(r.card)),
@@ -687,7 +698,7 @@ function react(state: GameState, cardId: string, opt: CardOption): GameState {
   const def = CARD_BY_ID[cardId];
   state.discard.push(cardId);
   draw(state, me);
-  state.log.push({ color: me, card: cardId, text: `${def.title} : ${opt.summary}` });
+  state.log.push({ color: me, card: cardId, msg: msg('log.card', { card: def.id, effect: opt.summary }) });
   state.lastEvent = { color: me, marks: opt.marks, card: cardId };
   const reactTo = state.reactTo!;
   const move = reactTo.move;
@@ -745,8 +756,8 @@ function finishChoice(state: GameState, replay: boolean) {
 
 function duelRound(state: GameState, c: Color, t: Throw): GameState {
   const d = state.duel;
-  if (state.phase !== 'duel' || !d) throw new IllegalAction('Pas de duel en cours');
-  if (d.throws[c]) throw new IllegalAction('Déjà joué pour cette manche');
+  if (state.phase !== 'duel' || !d) throw new IllegalAction('err.noDuel');
+  if (d.throws[c]) throw new IllegalAction('err.alreadyThrown');
   d.throws[c] = t;
   const w = d.throws.w;
   const b = d.throws.b;
@@ -763,7 +774,7 @@ function duelRound(state: GameState, c: Color, t: Throw): GameState {
     state.lastMove = null;
   }
   state.lastDuel = { score: { ...d.score }, last: d.last, defender: d.defender, winner };
-  state.log.push({ color: winner, card: 'duel', text: `${CARD_BY_ID.duel.title} ${d.score[d.defender]}–${d.score[d.attacker]} : ${defended ? 'la pièce attaquante est éliminée' : 'la prise a lieu'}` });
+  state.log.push({ color: winner, card: 'duel', msg: msg('log.duel', { defender: d.score[d.defender], attacker: d.score[d.attacker], defended }) });
   state.duel = null;
   state.phase = 'after';
   return state;
@@ -815,7 +826,7 @@ function endTurn(state: GameState) {
     swapSeats(state);
     state.swap = null;
     state.discard.push('doubleJeu');
-    state.log.push({ color: state.active, card: 'doubleJeu', text: `${CARD_BY_ID.doubleJeu.title} prend fin : chacun retrouve sa couleur`, notice: true });
+    state.log.push({ color: state.active, card: 'doubleJeu', msg: msg('log.doubleJeuEnds'), notice: true });
   }
   checkGameOver(state);
 }
@@ -877,7 +888,7 @@ function refreshRules(state: GameState) {
     } else if (r.card === 'fringale' && state.phase === 'main') keep = legalMoves(state.pos).some((m) => m.captured);
     if (!keep) {
       endRule(state, r);
-      state.log.push({ color: r.owner, card: r.card, text: `${CARD_BY_ID[r.card].title} prend fin`, notice: true });
+      state.log.push({ color: r.owner, card: r.card, msg: msg('log.ruleEnds', { card: r.card }), notice: true });
     }
     return keep;
   });
@@ -896,15 +907,15 @@ function checkGameOver(state: GameState) {
   state.phase = 'over';
   if (inCheck(state.pos.board, me)) {
     // pendant Double jeu, c'est le joueur assis à l'autre couleur qui l'emporte
-    state.result = { winner: state.swap ? me : other(me), reason: 'Échec et mat' };
+    state.result = { winner: state.swap ? me : other(me), reason: 'mate' };
   } else {
-    state.result = { winner: null, reason: 'Pat' };
+    state.result = { winner: null, reason: 'stalemate' };
   }
 }
 
 export function resign(prev: GameState, c: Color): GameState {
   const state = structuredClone(prev);
   state.phase = 'over';
-  state.result = { winner: other(c), reason: 'Abandon' };
+  state.result = { winner: other(c), reason: 'resign' };
   return state;
 }

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { fade, fly, scale } from 'svelte/transition';
-  import { CARD_BY_ID, DIRECTION_STEP, STEP_HINTS } from '../core/cards';
-  import { PIECE_NAME, fromFen, sqName, type PieceType, type Sq } from '../core/position';
+  import { CARD_BY_ID, DIRECTION_STEP } from '../core/cards';
+  import { fromFen, sqName, type PieceType, type Sq } from '../core/position';
+  import { cardTitle, fmt, optionLabel, stepCount, stepHint, t, type MsgKey } from '../i18n/index.svelte';
   import { BEATS, DUEL_WINS, THROWS, actor, canReplay, canSkip, canUndo, mustAct, type LogEntry, type Rule, type Throw } from '../core/game';
-  import { THEME_LABEL, controller as c } from '../lib/controller.svelte';
+  import { controller as c } from '../lib/controller.svelte';
   import { cardImage } from '../lib/vault';
   import Board from './Board.svelte';
   import Card from './Card.svelte';
@@ -66,47 +67,48 @@
   const marks = $derived(sel?.chosen ? sel.chosen.marks : (pendingShown?.option.marks ?? ev?.marks ?? []));
   const labelChoices = $derived(sel ? c.complete(sel).filter((o) => o.label) : []);
   // nombre d'étapes de sélection (cases à toucher) de la carte en cours
-  const steps = $derived(sel && !sel.forced ? (STEP_HINTS[sel.card]?.length ?? 0) : 0);
+  const steps = $derived(sel && !sel.forced ? stepCount(sel.card) : 0);
 
   const hint = $derived.by(() => {
     if (!sel) return '';
-    if (sel.chosen) return sel.chosen.summary;
-    if (c.nextSquares(sel).size === 0) return 'Choisissez :';
-    if (sel.forced) return sel.prompt ?? 'Touchez une case en surbrillance';
-    return STEP_HINTS[sel.card]?.[sel.path.length] ?? 'Touchez une case en surbrillance';
+    if (sel.chosen) return fmt(sel.chosen.summary);
+    if (c.nextSquares(sel).size === 0) return t('game.choose');
+    if (sel.forced) return sel.prompt ? fmt(sel.prompt) : t('game.tapLit');
+    return stepHint(sel.card, sel.path.length) ?? t('game.tapLit');
   });
 
   const status = $derived.by(() => {
-    if (g.phase === 'over') return g.result?.reason ?? 'Partie terminée';
-    if (c.online?.waiting) return "En attente de l'adversaire…";
-    if (c.online?.sending) return 'Envoi…';
-    if (g.phase === 'duel') return 'Duel !';
-    if (g.phase === 'choice' && !c.thinking && actor(g) !== c.color) return `${CARD_BY_ID[g.choice!.card].title} : au choix de ${c.opponent}…`;
-    if (c.thinking) return "L'ordinateur réfléchit…";
+    if (g.phase === 'over') return g.result ? reasonText(g.result.reason) : t('game.over');
+    if (c.online?.waiting) return t('game.waiting');
+    if (c.online?.sending) return t('game.sending');
+    if (g.phase === 'duel') return t('game.duel');
+    if (g.phase === 'choice' && !c.thinking && actor(g) !== c.color) return t('game.theirChoice', { card: g.choice!.card, who: c.who });
+    if (c.thinking) return t('game.botThinking');
     const target = g.phase === 'counter' && g.pending ? (g.pending.counters.at(-1)?.card ?? g.pending.card) : null;
     if (actor(g) !== c.color) {
       // c'est à l'adversaire de décider, même pendant mon tour (réaction à mon coup, annulation de ma carte)
-      const who = c.opponent.charAt(0).toUpperCase() + c.opponent.slice(1);
-      if (g.phase === 'reaction') return `${who} peut réagir à votre coup…`;
-      if (target) return `${who} peut annuler « ${CARD_BY_ID[target].title} »…`;
-      return `Au tour de ${c.opponent}`;
+      if (g.phase === 'reaction') return t('game.canReact', { who: c.who });
+      if (target) return t('game.canCounter', { who: c.who, card: target });
+      return t('game.theirTurn', { who: c.who });
     }
-    if (g.phase === 'reaction') return 'Réagir au coup adverse ?';
-    if (target) return `Annuler « ${CARD_BY_ID[target].title} » ?`;
-    if (g.active !== c.color) return `Au tour de ${c.opponent}`;
-    if (g.phase === 'main' && g.forbidden) return 'Coup annulé : jouez-en un autre';
-    if (canSkip(g)) return 'Provocation : prenez une pièce, ou passez';
-    if (g.extra) return `Rebelote : encore ${g.extra} carte${g.extra > 1 ? 's' : ''} ce tour-ci`;
+    if (g.phase === 'reaction') return t('game.react');
+    if (target) return t('game.counter', { card: target });
+    if (g.active !== c.color) return t('game.theirTurn', { who: c.who });
+    if (g.phase === 'main' && g.forbidden) return t('game.forbidden');
+    if (canSkip(g)) return t('game.provocation');
+    if (g.extra) return t('game.rebelote', { n: g.extra });
     if (g.phase === 'after') {
-      if (g.cardPlayed) return 'Terminez votre tour';
+      if (g.cardPlayed) return t('game.endTurnHint');
       const options = g.hands[c.color].some((id) => playable.has(id) || c.canDiscard(id));
-      return options ? 'Une carte à jouer ou défausser ?' : 'Aucune carte à jouer : terminez votre tour';
+      return options ? t('game.cardOrDiscard') : t('game.noCard');
     }
-    if (c.checkSquare() !== null) return 'Échec ! À vous de jouer';
-    return 'À vous de jouer';
+    if (c.checkSquare() !== null) return t('game.check');
+    return t('game.yourTurn');
   });
 
   const lastLog = $derived(g.log.length ? g.log[g.log.length - 1] : null);
+  /** Raison de la fin de partie (les anciennes versions l'écrivaient en toutes lettres). */
+  const reasonText = (r: string) => (['mate', 'stalemate', 'resign'].includes(r) ? t(`result.${r}` as MsgKey) : r);
   // défausse : comme sur une vraie table, la dernière carte défaussée est visible de tous
   const topDiscard = $derived(g.discard.at(-1) ?? null);
 
@@ -119,7 +121,7 @@
     if (r.card === 'planque' && r.sq !== undefined) return sqName(r.sq);
     // la pièce désignée par Voyance reste secrète pour l'adversaire
     if (r.card === 'voyance') return r.owner === c.color && r.sq !== undefined ? sqName(r.sq) : '?';
-    if (r.turn !== undefined) return r.owner === c.color ? 'tour adverse' : 'votre tour';
+    if (r.turn !== undefined) return r.owner === c.color ? t('game.theirTurnShort') : t('game.yourTurnShort');
     return '';
   }
   const level = $derived(c.level);
@@ -131,9 +133,9 @@
   let copied = $state(false);
   async function invite(code: string) {
     const url = `${location.origin}${location.pathname}?partie=${code}`;
-    const text = `Une partie de Tempête sur l'échiquier ? Code : ${code}`;
+    const text = t('game.inviteText', { code });
     try {
-      if (navigator.share) return await navigator.share({ title: "Tempête sur l'échiquier", text, url });
+      if (navigator.share) return await navigator.share({ title: t('app.name'), text, url });
       await navigator.clipboard.writeText(`${text}\n${url}`);
       copied = true;
       setTimeout(() => (copied = false), 2000);
@@ -145,7 +147,7 @@
   /** Qui a fait cette entrée de l'historique (« Vous », « Ordi », ou la couleur à deux). */
   function whoOf(e: LogEntry): string {
     if (c.mode === 'local') return c.colorName(e.color);
-    return (e.swapped ? e.color !== c.human : e.color === c.human) ? 'Vous' : online ? 'Adv.' : 'Ordi';
+    return (e.swapped ? e.color !== c.human : e.color === c.human) ? t('game.you') : online ? t('game.oppShort') : t('game.botShort');
   }
   function reviewFrom(i: number) {
     showLog = false;
@@ -179,7 +181,7 @@
   const PROMO: PieceType[] = ['q', 'r', 'b', 'n'];
   const ICON: Record<Throw, string> = { pierre: '✊', feuille: '✋', ciseaux: '✌️' };
   function roundText(mine: Throw, theirs: Throw) {
-    return mine === theirs ? 'égalité, on rejoue' : BEATS[mine] === theirs ? 'manche gagnée' : 'manche perdue';
+    return mine === theirs ? t('game.roundTie') : BEATS[mine] === theirs ? t('game.roundWon') : t('game.roundLost');
   }
 </script>
 
@@ -190,10 +192,10 @@
       {@const idx = g.log.length - 1 - i}
       <li class:card={!!e.card} class:current={idx === c.review}>
         <!-- toucher une entrée : revoir la position à ce moment-là -->
-        <button type="button" class="log-row" disabled={!e.fen} onclick={() => reviewFrom(idx)} title={e.fen ? 'Revoir cette position' : undefined}>
+        <button type="button" class="log-row" disabled={!e.fen} onclick={() => reviewFrom(idx)} title={e.fen ? t('game.reviewThis') : undefined}>
           <span class="who-dot {e.color}"></span>
           <span class="log-who">{whoOf(e)}</span>
-          <span class="log-text">{e.text}</span>
+          <span class="log-text">{fmt(e.msg)}</span>
         </button>
       </li>
     {/each}
@@ -204,7 +206,7 @@
 
 <div class="game">
   <header>
-    <button type="button" class="icon" onclick={() => (showMenu = true)} aria-label="Menu">
+    <button type="button" class="icon" onclick={() => (showMenu = true)} aria-label={t('game.menu')}>
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" /></svg>
     </button>
     <div class="opponent">
@@ -218,13 +220,13 @@
       <div class="who">
         {#if c.mode === 'local'}
           <strong>{c.colorName(c.bot)}</strong>
-          <span>Adversaire · à deux sur cet appareil</span>
+          <span>{t('game.localOpp')}</span>
         {:else if c.online}
-          <strong>Adversaire</strong>
-          <span><i class="presence" class:here={c.online.here}></i>{c.online.waiting ? 'pas encore arrivé' : c.online.here ? 'en ligne' : 'hors ligne'}{theirMove ? ' · réfléchit…' : ` · partie ${c.online.code}`}</span>
+          <strong>{t('game.opponent')}</strong>
+          <span><i class="presence" class:here={c.online.here}></i>{c.online.waiting ? t('game.notArrived') : c.online.here ? t('game.online') : t('game.offline')}{theirMove ? t('game.thinkingSuffix') : t('game.roomSuffix', { code: c.online.code })}</span>
         {:else}
-          <strong>Ordinateur</strong>
-          <span>{level.label}{c.thinking ? ' · réfléchit…' : ''}</span>
+          <strong>{t('game.computer')}</strong>
+          <span>{t(`level.${level.id}` as MsgKey)}{c.thinking ? t('game.thinkingSuffix') : ''}</span>
         {/if}
       </div>
       {#if c.bubble}
@@ -233,26 +235,26 @@
           <button type="button" class="bubble" onclick={() => c.openChat()} transition:fly={{ y: -8, duration: 200 }}>{c.bubble.text}</button>
         {/key}
       {/if}
-      <div class="backs" aria-label="{g.hands[c.bot].length} cartes en main">
+      <div class="backs" aria-label={t('game.handCount', { n: g.hands[c.bot].length })}>
         {#each g.hands[c.bot] as _, i (i)}
           <div class="mini-back" style:--i={i} style:background-image="url({cardImage('card-back')})"></div>
         {/each}
       </div>
     </div>
     {#if topDiscard}
-      <button type="button" class="discard-mini" onclick={() => (zoom = topDiscard)} aria-label="Défausse : {CARD_BY_ID[topDiscard].title}" title="Défausse : {CARD_BY_ID[topDiscard].title}">
+      <button type="button" class="discard-mini" onclick={() => (zoom = topDiscard)} aria-label={t('game.discardOf', { card: topDiscard })} title={t('game.discardOf', { card: topDiscard })}>
         {#key g.discard.length}
           <img src={cardImage(topDiscard)} alt="" draggable="false" in:fly={{ y: -16, duration: 250 }} />
         {/key}
       </button>
     {/if}
     {#if online}
-      <button type="button" class="icon chat-btn" onclick={() => c.openChat()} aria-label={c.unread ? `Chat, ${c.unread} message${c.unread > 1 ? 's' : ''} non lu${c.unread > 1 ? 's' : ''}` : 'Chat'}>
+      <button type="button" class="icon chat-btn" onclick={() => c.openChat()} aria-label={c.unread ? t('game.chatUnread', { n: c.unread }) : t('game.chat')}>
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M4 5h16v11H10l-4 4v-4H4z" /></svg>
         {#if c.unread}<span class="badge">{c.unread > 9 ? '9+' : c.unread}</span>{/if}
       </button>
     {/if}
-    <button type="button" class="icon log-btn" onclick={() => (showLog = true)} aria-label="Historique">
+    <button type="button" class="icon log-btn" onclick={() => (showLog = true)} aria-label={t('game.history')}>
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 4h11l3 3v13H5z" /><path d="M8 10h8M8 14h8M8 18h5" /></svg>
     </button>
   </header>
@@ -303,7 +305,7 @@
     <!-- grand écran : la défausse, face visible -->
     {#if topDiscard}
       <div class="pile">
-        <span class="wide-label">Défausse · {g.discard.length} carte{g.discard.length > 1 ? 's' : ''}</span>
+        <span class="wide-label">{t('game.discardPile', { n: g.discard.length })}</span>
         <div class="pile-stack" class:deep={g.discard.length > 1}>
           {#key g.discard.length}
             <div class="pile-top" in:fly={{ x: 120, y: 40, duration: 320 }}>
@@ -314,30 +316,30 @@
       </div>
     {/if}
   {#if rules.length || g.swap || reserves.length}
-    <div class="rules" aria-label="Règles en cours">
-      <span class="wide-label">Règles en cours</span>
+    <div class="rules" aria-label={t('game.rules')}>
+      <span class="wide-label">{t('game.rules')}</span>
       {#if g.swap}
         <button type="button" class="rule mine" onclick={() => (zoom = 'doubleJeu')}>
-          Double jeu<span>vous jouez les {c.color === 'w' ? 'Blancs' : 'Noirs'}, encore {Math.ceil((g.swap.until - (g.turn ?? 0)) / 2)} tour(s)</span>
+          {cardTitle('doubleJeu')}<span>{t('game.swapDetail', { color: c.color, n: Math.ceil((g.swap.until - (g.turn ?? 0)) / 2) })}</span>
         </button>
       {/if}
       {#each reserves as r (r.color + r.card)}
         <button type="button" class="rule" class:mine={r.color === c.color} onclick={() => (zoom = r.card)}>
-          {CARD_BY_ID[r.card].title}<span>en réserve · {r.color === c.color ? 'vous' : online ? 'adversaire' : 'ordi'}</span>
+          {cardTitle(r.card)}<span>{r.color === c.color ? t('game.reserveMine') : online ? t('game.reserveOpp') : t('game.reserveBot')}</span>
         </button>
       {/each}
       {#each rules as r (r.card)}
         {@const detail = ruleDetail(r)}
         <button type="button" class="rule" class:mine={r.owner === c.color} onclick={() => (zoom = r.card)}>
-          {CARD_BY_ID[r.card].title}{#if detail}<span>{detail}</span>{/if}
+          {cardTitle(r.card)}{#if detail}<span>{detail}</span>{/if}
         </button>
       {/each}
     </div>
   {/if}
     <!-- grand écran : les derniers coups restent visibles à gauche -->
     {#if g.log.length}
-      <div class="side-log" aria-label="Derniers coups">
-        <span class="wide-label">Derniers coups</span>
+      <div class="side-log" aria-label={t('game.lastMoves')}>
+        <span class="wide-label">{t('game.lastMoves')}</span>
         {@render logList(8)}
       </div>
     {/if}
@@ -347,35 +349,35 @@
   <div class="bar" class:card-mode={!!sel || !!rv}>
     {#if rv}
       <div class="sel-head">
-        <span class="sel-title">Revoir la partie <span class="sel-step">{rvRank}/{rvList.length}</span></span>
+        <span class="sel-title">{t('game.review')} <span class="sel-step">{rvRank}/{rvList.length}</span></span>
         <span class="sel-hint review-entry">
-          <span class="who-dot {rv.color}"></span>{whoOf(rv)} : {rv.text}
-          {#if rv.card}<button type="button" class="link-btn" onclick={() => (zoom = rv.card!)}>voir la carte</button>{/if}
+          <span class="who-dot {rv.color}"></span>{whoOf(rv)} : {fmt(rv.msg)}
+          {#if rv.card}<button type="button" class="link-btn" onclick={() => (zoom = rv.card!)}>{t('game.seeCard')}</button>{/if}
         </span>
       </div>
       <div class="actions">
-        <button type="button" class="btn ghost step-btn" disabled={rvRank <= 1} onclick={() => c.stepReview(-1)} aria-label="Coup précédent">◀</button>
-        <button type="button" class="btn ghost step-btn" onclick={() => c.stepReview(1)} aria-label={rvRank >= rvList.length ? 'Revenir à la partie' : 'Coup suivant'}>▶</button>
-        <button type="button" class="btn primary" onclick={() => c.endReview()}>Revenir à la partie</button>
+        <button type="button" class="btn ghost step-btn" disabled={rvRank <= 1} onclick={() => c.stepReview(-1)} aria-label={t('game.prev')}>◀</button>
+        <button type="button" class="btn ghost step-btn" onclick={() => c.stepReview(1)} aria-label={rvRank >= rvList.length ? t('game.back') : t('game.next')}>▶</button>
+        <button type="button" class="btn primary" onclick={() => c.endReview()}>{t('game.back')}</button>
       </div>
     {:else if sel}
       <div class="sel-head">
         <span class="sel-title">
-          {CARD_BY_ID[sel.card].title}
-          {#if steps > 1 && !sel.chosen}<span class="sel-step">étape {Math.min(sel.path.length + 1, steps)}/{steps}</span>{/if}
+          {cardTitle(sel.card)}
+          {#if steps > 1 && !sel.chosen}<span class="sel-step">{t('game.step', { i: Math.min(sel.path.length + 1, steps), n: steps })}</span>{/if}
         </span>
         <span class="sel-hint">{hint}</span>
       </div>
       {#if labelChoices.length > 1 || (labelChoices.length === 1 && targets.size > 0)}
         <div class="choices">
           {#each labelChoices as o (o.label)}
-            <button type="button" class="chip" class:on={sel.chosen === o} onclick={() => c.choose(o)}>{o.label}</button>
+            <button type="button" class="chip" class:on={sel.chosen === o} onclick={() => c.choose(o)}>{optionLabel(o)}</button>
           {/each}
         </div>
       {/if}
       <div class="actions">
-        {#if !sel.forced}<button type="button" class="btn ghost" onclick={() => c.cancelCard()}>Annuler</button>{/if}
-        <button type="button" class="btn primary" disabled={!sel.chosen} onclick={() => c.confirmCard()}>{sel.forced ? 'Valider' : 'Jouer la carte'}</button>
+        {#if !sel.forced}<button type="button" class="btn ghost" onclick={() => c.cancelCard()}>{t('common.cancel')}</button>{/if}
+        <button type="button" class="btn primary" disabled={!sel.chosen} onclick={() => c.confirmCard()}>{sel.forced ? t('game.validate') : t('game.playCard')}</button>
       </div>
     {:else}
       <div class="status">
@@ -383,44 +385,44 @@
         <span>{status}</span>
       </div>
       {#if g.phase === 'over'}
-        <button type="button" class="btn primary small" onclick={() => (overHidden = false)}>Résultat</button>
+        <button type="button" class="btn primary small" onclick={() => (overHidden = false)}>{t('game.result')}</button>
       {:else if g.phase === 'after' && g.active === c.color}
         <div class="turn-btns">
           {#if canUndo(g) && c.myTurn}
-            <button type="button" class="btn ghost small" onclick={() => c.undo()} title="Reprendre le coup que vous venez de jouer">Annuler mon coup</button>
+            <button type="button" class="btn ghost small" onclick={() => c.undo()} title={t('game.undoTitle')}>{t('game.undo')}</button>
           {/if}
           {#if canReplay(g) && c.myTurn}
-            <button type="button" class="btn ghost small" onclick={() => c.replay()}>Je passe : rejouer</button>
+            <button type="button" class="btn ghost small" onclick={() => c.replay()}>{t('game.replay')}</button>
           {/if}
-          <button type="button" class="btn primary small" onclick={() => c.endTurn()}>Terminer mon tour</button>
+          <button type="button" class="btn primary small" onclick={() => c.endTurn()}>{t('game.endTurn')}</button>
         </div>
       {:else if canSkip(g) && c.myTurn}
-        <button type="button" class="btn primary small" onclick={() => c.skip()}>Passer mon tour</button>
+        <button type="button" class="btn primary small" onclick={() => c.skip()}>{t('game.skip')}</button>
       {:else if (g.phase === 'reaction' || g.phase === 'counter') && actor(g) === c.color && !c.reveal}
-        <button type="button" class="btn primary small" onclick={() => c.passReaction()}>Laisser passer</button>
+        <button type="button" class="btn primary small" onclick={() => c.passReaction()}>{t('game.allow')}</button>
       {:else if lastLog}
-        <button type="button" class="last" title="Revoir la partie" onclick={() => c.startReview()}>
-          <span class="who-dot {lastLog.color}"></span>{lastLog.text}
+        <button type="button" class="last" title={t('game.review')} onclick={() => c.startReview()}>
+          <span class="who-dot {lastLog.color}"></span>{fmt(lastLog.msg)}
         </button>
       {/if}
     {/if}
   </div>
     <!-- grand écran, en ligne : le chat reste affiché sous la barre d'état -->
     {#if online && wide}
-      <div class="side-chat" aria-label="Chat">
+      <div class="side-chat" aria-label={t('game.chat')}>
         <Chat docked />
       </div>
     {/if}
   </div>
   </div>
 
-  <div class="hand" aria-label="Votre main">
+  <div class="hand" aria-label={t('game.hand')}>
     {#each g.hands[c.color] as id, i (id)}
       <div class="slot" style:--i={i} style:--n={g.hands[c.color].length} in:fly={{ y: 60, duration: 300 }}>
         <Card {id} playable={playable.has(id) && !sel} dim={!!sel && sel.card !== id} onclick={() => openCard(id)} />
         {#if !sel && playable.has(id) && c.ends(id).length}
-          <span class="ends-badge" title="Met fin à {c.ends(id).join(', ')}">⇄</span>
-        {:else if !sel && c.isDead(id)}<span class="dead-stamp" title={g.phase === 'after' ? 'Défaussable' : 'Défaussable après votre coup'}>Inutile</span>{/if}
+          <span class="ends-badge" title={t('game.endsTitle', { cards: c.ends(id) })}>⇄</span>
+        {:else if !sel && c.isDead(id)}<span class="dead-stamp" title={g.phase === 'after' ? t('game.discardable') : t('game.discardableAfter')}>{t('game.dead')}</span>{/if}
       </div>
     {/each}
   </div>
@@ -430,23 +432,23 @@
 {#if detail}
   {@const why = c.whyNot(detail)}
   {@const ends = c.ends(detail)}
-  <Sheet onclose={() => (detail = null)} label="Carte">
+  <Sheet onclose={() => (detail = null)} label={t('common.card')}>
     <div class="detail">
       <Card id={detail} big />
       {#if why}
         <p class="why">{why}</p>
         {#if c.canDiscard(detail)}
-          <p class="dead-note">Vous pouvez la défausser et en piocher une autre. Cela compte comme votre carte du tour.</p>
-          <button type="button" class="btn primary wide" onclick={discardDetail}>Défausser et piocher</button>
+          <p class="dead-note">{t('game.deadNote')}</p>
+          <button type="button" class="btn primary wide" onclick={discardDetail}>{t('game.discardDraw')}</button>
         {/if}
-        <button type="button" class="btn ghost wide" onclick={() => (detail = null)}>Fermer</button>
+        <button type="button" class="btn ghost wide" onclick={() => (detail = null)}>{t('common.close')}</button>
       {:else}
         {#if ends.length}
           <p class="ends-note">
-            {ends.map((t) => `« ${t} »`).join(' et ')} {ends.length > 1 ? 'sont' : 'est'} en cours : jouer cette carte y met fin, car la dernière carte jouée l'emporte.
+            {t('game.endsNote', { cards: ends })}
           </p>
         {/if}
-        <button type="button" class="btn primary wide" onclick={playDetail}>Jouer cette carte</button>
+        <button type="button" class="btn primary wide" onclick={playDetail}>{t('game.playThis')}</button>
       {/if}
     </div>
   </Sheet>
@@ -457,16 +459,16 @@
   <div class="handoff" transition:fade={{ duration: 150 }}>
     <div class="handoff-card">
       <img class="handoff-king" src="{import.meta.env.BASE_URL}pieces/{c.handoff.color}K.svg" alt="" />
-      <h2>Au tour des {c.colorName(c.handoff.color)}</h2>
+      <h2>{t('game.handoff', { color: c.handoff.color })}</h2>
       {#if c.handoff.news.length}
-        <p class="muted">Depuis votre dernier passage :</p>
+        <p class="muted">{t('game.since')}</p>
         <ul class="handoff-news">
-          {#each c.handoff.news as n, i (i)}<li>{n}</li>{/each}
+          {#each c.handoff.news as n, i (i)}<li>{fmt(n)}</li>{/each}
         </ul>
       {:else}
-        <p class="muted">Passez l'appareil, sans regarder la main de l'autre.</p>
+        <p class="muted">{t('game.passDevice')}</p>
       {/if}
-      <button type="button" class="btn primary wide" onclick={() => c.takeOver()}>Je suis prêt</button>
+      <button type="button" class="btn primary wide" onclick={() => c.takeOver()}>{t('game.ready')}</button>
     </div>
   </div>
 {/if}
@@ -475,13 +477,13 @@
 {#if c.reveal}
   <div class="reveal" transition:fade={{ duration: 180 }} onclick={() => c.dismissReveal()} role="presentation">
     <div class="reveal-card" in:scale={{ start: 0.6, duration: 320 }}>
-      <p class="reveal-kicker">{online ? "L'adversaire joue" : "L'ordinateur joue"}</p>
+      <p class="reveal-kicker">{online ? t('game.oppPlays') : t('game.botPlays')}</p>
       <Card id={c.reveal.card} big />
-      <p class="reveal-summary">{c.reveal.summary}</p>
+      <p class="reveal-summary">{fmt(c.reveal.summary)}</p>
       {#if c.reveal.ends.length}
-        <p class="reveal-ends">Met fin à {c.reveal.ends.map((id) => `« ${CARD_BY_ID[id].title} »`).join(' et ')}</p>
+        <p class="reveal-ends">{t('game.endsRule', { cards: c.reveal.ends })}</p>
       {/if}
-      <p class="tap">Touchez pour continuer</p>
+      <p class="tap">{t('game.tapContinue')}</p>
     </div>
   </div>
 {/if}
@@ -489,22 +491,22 @@
 <!-- duel : pierre-feuille-ciseaux -->
 {#if g.phase === 'duel' && g.duel && !c.reveal}
   {@const d = g.duel}
-  <Sheet center label="Duel">
+  <Sheet center label={cardTitle('duel')}>
     <div class="duel">
-      <h2 class="sheet-title">Duel</h2>
-      <p class="muted">{d.defender === c.color ? 'Défendez votre pièce !' : 'Prenez la pièce de force !'} Premier à {DUEL_WINS} manches.</p>
-      <div class="duel-score"><span>{c.mode === 'local' ? c.colorName(c.color) : 'Vous'} <b>{d.score[c.color]}</b></span><span><b>{d.score[c.bot]}</b> {c.mode === 'local' ? c.colorName(c.bot) : online ? 'Adv.' : 'Ordi'}</span></div>
+      <h2 class="sheet-title">{cardTitle('duel')}</h2>
+      <p class="muted">{d.defender === c.color ? t('game.defend') : t('game.attack')} {t('game.firstTo', { n: DUEL_WINS })}</p>
+      <div class="duel-score"><span>{c.mode === 'local' ? c.colorName(c.color) : t('game.you')} <b>{d.score[c.color]}</b></span><span><b>{d.score[c.bot]}</b> {c.mode === 'local' ? c.colorName(c.bot) : online ? t('game.oppShort') : t('game.botShort')}</span></div>
       {#if d.last}
-        <p class="duel-last">{ICON[d.last[c.color]]} contre {ICON[d.last[c.bot]]} : {roundText(d.last[c.color], d.last[c.bot])}</p>
+        <p class="duel-last">{ICON[d.last[c.color]]} {t('game.vs')} {ICON[d.last[c.bot]]} : {roundText(d.last[c.color], d.last[c.bot])}</p>
       {/if}
       {#if mustAct(g, c.color)}
         <div class="throws">
-          {#each THROWS as t (t)}
-            <button type="button" class="throw" onclick={() => c.throwDuel(t)}><span>{ICON[t]}</span>{t}</button>
+          {#each THROWS as th (th)}
+            <button type="button" class="throw" onclick={() => c.throwDuel(th)}><span>{ICON[th]}</span>{t(`throw.${th}`)}</button>
           {/each}
         </div>
       {:else}
-        <p class="muted">Au tour de {c.opponent} de choisir…</p>
+        <p class="muted">{t('game.theirPick', { who: c.who })}</p>
       {/if}
     </div>
   </Sheet>
@@ -513,24 +515,24 @@
 <!-- issue du duel -->
 {#if c.duelResult}
   {@const r = c.duelResult}
-  <Sheet center onclose={() => c.dismissDuel()} label="Issue du duel">
+  <Sheet center onclose={() => c.dismissDuel()} label={t('game.duelOutcome')}>
     <div class="duel">
-      <div class="over-badge" class:won={r.winner === c.color}>{r.winner === c.color ? 'Duel gagné !' : 'Duel perdu'}</div>
-      <p class="duel-last">{ICON[r.last[c.color]]} contre {ICON[r.last[c.bot]]} · {r.score[c.color]}–{r.score[c.bot]}</p>
-      <p>{r.winner === r.defender ? 'La pièce attaquante est éliminée.' : 'La prise a lieu.'}</p>
-      <button type="button" class="btn primary wide" onclick={() => c.dismissDuel()}>Continuer</button>
+      <div class="over-badge" class:won={r.winner === c.color}>{r.winner === c.color ? t('game.duelWon') : t('game.duelLost')}</div>
+      <p class="duel-last">{ICON[r.last[c.color]]} {t('game.vs')} {ICON[r.last[c.bot]]} · {r.score[c.color]}–{r.score[c.bot]}</p>
+      <p>{r.winner === r.defender ? t('game.attackerOut') : t('game.captureHappens')}</p>
+      <button type="button" class="btn primary wide" onclick={() => c.dismissDuel()}>{t('common.continue')}</button>
     </div>
   </Sheet>
 {/if}
 
 <!-- promotion -->
 {#if c.promotion}
-  <Sheet center onclose={() => c.promote(null)} label="Promotion">
-    <h2 class="sheet-title">Promotion</h2>
+  <Sheet center onclose={() => c.promote(null)} label={t('game.promotion')}>
+    <h2 class="sheet-title">{t('game.promotion')}</h2>
     <div class="promo">
-      {#each PROMO as t (t)}
-        <button type="button" class="promo-btn" onclick={() => c.promote(t)} aria-label={PIECE_NAME[t]}>
-          <img src="{import.meta.env.BASE_URL}pieces/{c.color}{t.toUpperCase()}.svg" alt="" />
+      {#each PROMO as pt (pt)}
+        <button type="button" class="promo-btn" onclick={() => c.promote(pt)} aria-label={t(`piece.${pt}`)}>
+          <img src="{import.meta.env.BASE_URL}pieces/{c.color}{pt.toUpperCase()}.svg" alt="" />
         </button>
       {/each}
     </div>
@@ -540,25 +542,25 @@
 <!-- en ligne : en attendant l'adversaire -->
 {#if c.online?.waiting && g.phase !== 'over'}
   {@const code = c.online.code}
-  <Sheet center label="En attente de l'adversaire">
+  <Sheet center label={t('game.waitingTitle')}>
     <div class="over">
-      <h2 class="sheet-title">Partie {code}</h2>
-      <p>Envoyez ce code à votre adversaire. La partie commence dès son arrivée.</p>
-      <p class="room-code" aria-label="Code {code.split('').join(' ')}">{code}</p>
-      <button type="button" class="btn primary wide" onclick={() => invite(code)}>{copied ? 'Lien copié !' : 'Inviter'}</button>
-      <button type="button" class="btn ghost wide" onclick={onquit}>Menu principal</button>
+      <h2 class="sheet-title">{t('game.room', { code })}</h2>
+      <p>{t('game.sendCode')}</p>
+      <p class="room-code" aria-label={t('game.codeAria', { spaced: code.split('').join(' ') })}>{code}</p>
+      <button type="button" class="btn primary wide" onclick={() => invite(code)}>{copied ? t('game.copied') : t('game.invite')}</button>
+      <button type="button" class="btn ghost wide" onclick={onquit}>{t('common.mainMenu')}</button>
     </div>
   </Sheet>
 {/if}
 
 <!-- en ligne : les deux appareils ne voient plus la même partie -->
 {#if c.online?.broken}
-  <Sheet center label="Partie désynchronisée">
+  <Sheet center label={t('game.desync')}>
     <div class="over">
-      <h2 class="sheet-title">Partie interrompue</h2>
+      <h2 class="sheet-title">{t('game.interrupted')}</h2>
       <p>{c.online.broken}</p>
-      <button type="button" class="btn primary wide" onclick={() => location.reload()}>Recharger</button>
-      <button type="button" class="btn ghost wide" onclick={onquit}>Menu principal</button>
+      <button type="button" class="btn primary wide" onclick={() => location.reload()}>{t('game.reload')}</button>
+      <button type="button" class="btn ghost wide" onclick={onquit}>{t('common.mainMenu')}</button>
     </div>
   </Sheet>
 {/if}
@@ -569,14 +571,14 @@
   {@const won = local || g.result.winner === c.human}
   {@const draw = g.result.winner === null}
   <!-- refermable : pour revoir l'échiquier, ou continuer à discuter en ligne -->
-  <Sheet center onclose={() => (overHidden = true)} label="Fin de partie">
+  <Sheet center onclose={() => (overHidden = true)} label={t('game.overTitle')}>
     <div class="over">
       <div class="over-badge" class:won class:draw>
-        {draw ? 'Nulle' : local ? `Les ${c.colorName(g.result.winner!)} gagnent !` : won ? 'Victoire !' : 'Défaite'}
+        {draw ? t('game.draw') : local ? t('game.colorWins', { color: g.result.winner }) : won ? t('game.victory') : t('game.defeat')}
       </div>
-      <p>{g.result.reason}{draw || local ? '' : won ? ' — bien joué.' : online ? " — l'adversaire l'emporte." : " — l'ordinateur l'emporte."}</p>
+      <p>{reasonText(g.result.reason)}{draw || local ? '' : won ? t('game.wellPlayed') : online ? t('game.oppWins') : t('game.botWins')}</p>
       {#if !online}
-        <button type="button" class="btn primary wide" onclick={() => c.start(c.prefs)}>Rejouer</button>
+        <button type="button" class="btn primary wide" onclick={() => c.start(c.prefs)}>{t('game.rematch')}</button>
       {:else}
         <button
           type="button"
@@ -584,56 +586,56 @@
           onclick={() => {
             overHidden = true;
             if (!c.chatDocked) c.openChat();
-          }}>Discuter{c.unread ? ` (${c.unread} non lu${c.unread > 1 ? 's' : ''})` : ''}</button
+          }}>{t('game.discuss', { n: c.unread })}</button
         >
       {/if}
-      <button type="button" class="btn ghost wide" onclick={() => (overHidden = true)}>Voir l'échiquier</button>
-      <button type="button" class="btn ghost wide" onclick={onquit}>Menu principal</button>
+      <button type="button" class="btn ghost wide" onclick={() => (overHidden = true)}>{t('game.seeBoard')}</button>
+      <button type="button" class="btn ghost wide" onclick={onquit}>{t('common.mainMenu')}</button>
     </div>
   </Sheet>
 {/if}
 
 <!-- historique -->
 {#if showLog}
-  <Sheet onclose={() => (showLog = false)} label="Historique">
-    <h2 class="sheet-title">Historique</h2>
+  <Sheet onclose={() => (showLog = false)} label={t('game.history')}>
+    <h2 class="sheet-title">{t('game.history')}</h2>
     {#if !g.log.length}
-      <p class="muted">Rien pour l'instant.</p>
+      <p class="muted">{t('game.nothingYet')}</p>
     {:else}
-      <p class="muted log-hint">Touchez une entrée pour revoir la position à ce moment-là.</p>
+      <p class="muted log-hint">{t('game.logHint')}</p>
       {@render logList(g.log.length)}
     {/if}
   </Sheet>
 {/if}
 
 {#if c.chatOpen && !c.chatDocked}
-  <Sheet onclose={() => c.closeChat()} label="Chat">
+  <Sheet onclose={() => c.closeChat()} label={t('game.chat')}>
     <Chat />
   </Sheet>
 {/if}
 
 {#if zoom}
-  <Sheet center onclose={() => (zoom = null)} label="Carte">
+  <Sheet center onclose={() => (zoom = null)} label={t('common.card')}>
     <Card id={zoom} big />
-    <button type="button" class="btn ghost wide zoom-close" onclick={() => (zoom = null)}>Fermer</button>
+    <button type="button" class="btn ghost wide zoom-close" onclick={() => (zoom = null)}>{t('common.close')}</button>
   </Sheet>
 {/if}
 
 <!-- menu -->
 {#if showMenu}
-  <Sheet onclose={() => (showMenu = false)} label="Menu">
-    <h2 class="sheet-title">Partie en cours</h2>
+  <Sheet onclose={() => (showMenu = false)} label={t('game.menu')}>
+    <h2 class="sheet-title">{t('game.inProgress')}</h2>
     <div class="menu">
-      <button type="button" class="btn ghost wide" onclick={() => (showMenu = false)}>Continuer</button>
-      <button type="button" class="btn ghost wide" onclick={() => c.toggleSound()}>Son : {c.prefs.sound === false ? 'désactivé' : 'activé'}</button>
-      <button type="button" class="btn ghost wide" onclick={() => c.cycleTheme()}>Thème : {THEME_LABEL[c.prefs.theme ?? 'auto']}</button>
+      <button type="button" class="btn ghost wide" onclick={() => (showMenu = false)}>{t('common.continue')}</button>
+      <button type="button" class="btn ghost wide" onclick={() => c.toggleSound()}>{t('game.sound', { on: c.prefs.sound !== false })}</button>
+      <button type="button" class="btn ghost wide" onclick={() => c.cycleTheme()}>{t('theme.label', { name: t(`theme.${c.prefs.theme ?? 'auto'}`) })}</button>
       <button
         type="button"
         class="btn ghost wide"
         onclick={() => {
           showMenu = false;
           onquit();
-        }}>Menu principal (partie sauvegardée)</button
+        }}>{t('game.quitSaved')}</button
       >
       {#if g.phase !== 'over'}
         <button
@@ -642,10 +644,10 @@
           onclick={() => {
             showMenu = false;
             c.resign();
-          }}>Abandonner</button
+          }}>{t('game.resign')}</button
         >
       {/if}
-      <p class="version">Version {__APP_VERSION__}</p>
+      <p class="version">{t('common.version', { v: __APP_VERSION__ })}</p>
     </div>
   </Sheet>
 {/if}

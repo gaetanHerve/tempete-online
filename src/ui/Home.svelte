@@ -1,10 +1,12 @@
 <script lang="ts">
   import { BOT_LEVELS } from '../core/bot';
   import { DECK_CARDS } from '../core/cards';
-  import { THEME_LABEL, controller as c, type Mode, type Prefs } from '../lib/controller.svelte';
+  import { controller as c, type Mode, type Prefs } from '../lib/controller.svelte';
+  import { rulesList, t, type MsgKey } from '../i18n/index.svelte';
   import { install } from '../lib/install.svelte';
   import { CODE_LENGTH, OnlineError, isValidCode, normalizeCode } from '../lib/online';
   import Card from './Card.svelte';
+  import LangSwitch from './LangSwitch.svelte';
   import Sheet from './Sheet.svelte';
 
   interface Props {
@@ -40,7 +42,7 @@
       if ((await task()) !== false) onplay();
     } catch (e) {
       console.error(e);
-      error = e instanceof OnlineError ? e.message : 'Une erreur est survenue. Réessayez.';
+      error = e instanceof OnlineError ? e.message : t('common.error');
     } finally {
       busy = false;
     }
@@ -71,39 +73,39 @@
     join();
   }
 
-  const MODES: { id: Mode; label: string }[] = [
-    { id: 'bot', label: "Contre l'ordinateur" },
-    { id: 'local', label: 'À deux, sur cet appareil' },
-    { id: 'online', label: 'En ligne' },
+  const MODES: { id: Mode; label: MsgKey }[] = [
+    { id: 'bot', label: 'home.mode.bot' },
+    { id: 'local', label: 'home.mode.local' },
+    { id: 'online', label: 'home.mode.online' },
   ];
 
-  const COLORS: { id: Prefs['color']; label: string }[] = [
-    { id: 'w', label: 'Blancs' },
-    { id: 'random', label: 'Au hasard' },
-    { id: 'b', label: 'Noirs' },
+  const COLORS: { id: Prefs['color']; label: MsgKey }[] = [
+    { id: 'w', label: 'color.w' },
+    { id: 'random', label: 'home.random' },
+    { id: 'b', label: 'color.b' },
   ];
 </script>
 
 <main class="home">
-  <img class="logo" src="{import.meta.env.BASE_URL}logo.jpg" alt="Tempête sur l'échiquier" />
+  <img class="logo" src="{import.meta.env.BASE_URL}logo.jpg" alt={t('app.name')} />
 
   {#if canResume}
-    <button type="button" class="btn primary wide big" onclick={resume} disabled={busy}>Reprendre la partie</button>
+    <button type="button" class="btn primary wide big" onclick={resume} disabled={busy}>{t('home.resume')}</button>
   {/if}
 
   <section class="panel">
-    <div class="seg" role="radiogroup" aria-label="Adversaire">
+    <div class="seg" role="radiogroup" aria-label={t('home.opponent')}>
       {#each MODES as opt (opt.id)}
-        <button type="button" role="radio" aria-checked={mode === opt.id} class:on={mode === opt.id} onclick={() => (mode = opt.id)}>{opt.label}</button>
+        <button type="button" role="radio" aria-checked={mode === opt.id} class:on={mode === opt.id} onclick={() => (mode = opt.id)}>{t(opt.label)}</button>
       {/each}
     </div>
 
     {#if mode === 'local'}
-      <p class="local-note">Les Blancs commencent. Entre deux tours, un écran cache la main du joueur précédent : passez-vous l'appareil.</p>
+      <p class="local-note">{t('home.localNote')}</p>
     {:else if mode === 'online'}
-      <p class="local-note">Créez une partie et envoyez son code à votre adversaire, ou rejoignez la sienne.</p>
-      <h2>Vous jouez</h2>
-      <div class="seg" role="radiogroup" aria-label="Couleur">
+      <p class="local-note">{t('home.onlineNote')}</p>
+      <h2>{t('home.youPlay')}</h2>
+      <div class="seg" role="radiogroup" aria-label={t('home.color')}>
         {#each COLORS as opt (opt.id)}
           <button type="button" role="radio" aria-checked={color === opt.id} class:on={color === opt.id} onclick={() => (color = opt.id)}>
             {#if opt.id !== 'random'}
@@ -111,11 +113,11 @@
             {:else}
               <span class="dice">?</span>
             {/if}
-            {opt.label}
+            {t(opt.label)}
           </button>
         {/each}
       </div>
-      <h2>Rejoindre une partie</h2>
+      <h2>{t('home.join')}</h2>
       <form
         class="join"
         onsubmit={(e) => {
@@ -130,16 +132,16 @@
           autocomplete="off"
           spellcheck="false"
           maxlength={CODE_LENGTH + 2}
-          placeholder="Code"
-          aria-label="Code de la partie"
+          placeholder={t('home.code')}
+          aria-label={t('home.codeAria')}
           bind:value={code}
           disabled={busy}
         />
-        <button type="submit" class="btn" disabled={!codeOk || busy}>Rejoindre</button>
+        <button type="submit" class="btn" disabled={!codeOk || busy}>{t('home.joinBtn')}</button>
       </form>
     {:else}
-      <h2>Vous jouez</h2>
-      <div class="seg" role="radiogroup" aria-label="Couleur">
+      <h2>{t('home.youPlay')}</h2>
+      <div class="seg" role="radiogroup" aria-label={t('home.color')}>
         {#each COLORS as opt (opt.id)}
           <button type="button" role="radio" aria-checked={color === opt.id} class:on={color === opt.id} onclick={() => (color = opt.id)}>
             {#if opt.id !== 'random'}
@@ -147,17 +149,17 @@
             {:else}
               <span class="dice">?</span>
             {/if}
-            {opt.label}
+            {t(opt.label)}
           </button>
         {/each}
       </div>
 
-      <h2>Contre l'ordinateur</h2>
-      <div class="levels" role="radiogroup" aria-label="Niveau">
+      <h2>{t('home.mode.bot')}</h2>
+      <div class="levels" role="radiogroup" aria-label={t('home.level')}>
         {#each BOT_LEVELS as l (l.id)}
           <button type="button" role="radio" aria-checked={level === l.id} class="level" class:on={level === l.id} onclick={() => (level = l.id)}>
-            <strong>{l.label}</strong>
-            <span>{l.description}</span>
+            <strong>{t(`level.${l.id}` as MsgKey)}</strong>
+            <span>{t(`level.${l.id}.desc` as MsgKey)}</span>
           </button>
         {/each}
       </div>
@@ -166,87 +168,82 @@
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <button type="button" class="btn {canResume ? 'ghost' : 'primary'} wide big" onclick={play} disabled={busy}>
-    {mode === 'online' ? (busy ? 'Connexion…' : 'Créer une partie') : 'Nouvelle partie'}
+    {mode === 'online' ? (busy ? t('home.connecting') : t('home.create')) : t('home.newGame')}
   </button>
 
   {#if install.offered}
     <button type="button" class="btn ghost wide install" onclick={installApp}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-      Installer l'appli
+      {t('home.install')}
     </button>
   {/if}
 
   <div class="links">
-    <button type="button" class="link" onclick={() => (rules = true)}>Comment jouer ?</button>
-    <button type="button" class="link" onclick={() => (gallery = true)}>Les {DECK_CARDS.length} cartes</button>
-    <button type="button" class="link" onclick={() => c.cycleTheme()}>Thème : {THEME_LABEL[c.prefs.theme ?? 'auto']}</button>
+    <button type="button" class="link" onclick={() => (rules = true)}>{t('home.howTo')}</button>
+    <button type="button" class="link" onclick={() => (gallery = true)}>{t('home.cards', { n: DECK_CARDS.length })}</button>
+    <button type="button" class="link" onclick={() => c.cycleTheme()}>{t('theme.label', { name: t(`theme.${c.prefs.theme ?? 'auto'}`) })}</button>
   </div>
-  <p class="version">Version {__APP_VERSION__}</p>
+  <LangSwitch />
+  <p class="version">{t('common.version', { v: __APP_VERSION__ })}</p>
 </main>
 
 {#if rules}
-  <Sheet onclose={() => (rules = false)} label="Règles">
-    <h2 class="sheet-title">Comment jouer ?</h2>
+  <Sheet onclose={() => (rules = false)} label={t('home.rules')}>
+    <h2 class="sheet-title">{t('home.howTo')}</h2>
     <div class="rules">
-      <p>Une partie d'échecs normale… jusqu'à ce que les cartes s'en mêlent.</p>
+      <p>{t('home.rulesIntro')}</p>
       <ul>
-        <li>Chaque joueur a <strong>5 cartes</strong> en main.</li>
-        <li>À votre tour, vous pouvez jouer <strong>une seule carte</strong>, puis vous en piochez une nouvelle.</li>
-        <li>Chaque carte indique son moment : <em>avant</em> votre coup, <em>à la place</em> de votre coup ou <em>après</em> votre coup.</li>
-        <li>Certaines cartes se jouent <em>après le coup adverse</em>, pour y réagir. Quand l'une d'elles s'applique, la partie vous laisse le choix : jouer la carte ou « Laisser passer ». Vous pouvez jouer une carte pendant le tour adverse, et une autre pendant le vôtre.</li>
-        <li>Certaines cartes posent une règle temporaire (plus de prise, une pièce endormie…) : elle s'affiche sous l'échiquier tant qu'elle dure. Touchez-la pour relire la carte.</li>
-        <li><em>Non</em> et <em>Niet</em> annulent la carte que l'adversaire vient de jouer : elle est perdue, sans effet. Elles comptent dans la même limite.</li>
-        <li>Les cartes jouables brillent. Touchez une carte pour la lire, puis « Jouer » et suivez les consignes sur l'échiquier.</li>
-        <li>Une carte ne peut jamais laisser votre Roi en échec — mais elle peut vous sortir d'un mat !</li>
-        <li>Une carte devenue définitivement inutile (par exemple Pégase quand vous n'avez plus de Cavalier) porte le tampon « Inutile » : après avoir joué votre coup, vous pouvez la défausser et en piocher une autre, à la place de jouer une carte ce tour-là.</li>
-        <li>On gagne par échec et mat, comme d'habitude.</li>
+        {#each rulesList() as rule, i (i)}
+          <!-- textes du dictionnaire (HTML simple), titres de cartes échappés -->
+          <li>{@html rule}</li>
+        {/each}
       </ul>
     </div>
-    <button type="button" class="btn primary wide" onclick={() => (rules = false)}>Compris</button>
+    <button type="button" class="btn primary wide" onclick={() => (rules = false)}>{t('common.gotIt')}</button>
   </Sheet>
 {/if}
 
 {#if installHelp}
-  <Sheet onclose={() => (installHelp = null)} label="Installer l'appli">
-    <h2 class="sheet-title">Installer l'appli</h2>
-    <p class="install-intro">Installé sur l'écran d'accueil, le jeu s'ouvre en plein écran, sans barre d'adresse.</p>
+  <Sheet onclose={() => (installHelp = null)} label={t('home.install')}>
+    <h2 class="sheet-title">{t('home.install')}</h2>
+    <p class="install-intro">{t('install.intro')}</p>
     <ol class="install-steps">
       {#if installHelp === 'menu'}
         <li>
           <span class="step-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="5" r="2" fill="currentColor" /><circle cx="12" cy="12" r="2" fill="currentColor" /><circle cx="12" cy="19" r="2" fill="currentColor" /></svg>
           </span>
-          <span>Ouvrez le <strong>menu</strong> du navigateur (les trois points, en haut ou en bas à droite).</span>
+          <span>{@html t('install.menu1')}</span>
         </li>
         <li>
           <span class="step-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.2" /><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
           </span>
-          <span>Choisissez <strong>Installer</strong> ou <strong>Ajouter à l'écran d'accueil</strong>, puis confirmez.</span>
+          <span>{@html t('install.menu2')}</span>
         </li>
       {:else}
       <li>
         <span class="step-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 3v12M12 3 8 7m4-4 4 4M7 11H5v10h14V11h-2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </span>
-        <span>Dans Safari, touchez le bouton <strong>Partager</strong> (en bas de l'écran, ou en haut sur iPad).</span>
+        <span>{@html t('install.ios1')}</span>
       </li>
       <li>
         <span class="step-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.2" /><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></svg>
         </span>
-        <span>Faites défiler, choisissez <strong>Sur l'écran d'accueil</strong>, puis <strong>Ajouter</strong>.</span>
+        <span>{@html t('install.ios2')}</span>
       </li>
       {/if}
     </ol>
-    <p class="install-note">L'appli installée garde ses propres données : il faudra y saisir le mot de passe une fois. Pour rejoindre une partie depuis l'appli, saisissez son code dans « En ligne ».</p>
-    <button type="button" class="btn primary wide" onclick={() => (installHelp = null)}>Compris</button>
+    <p class="install-note">{t('install.note')}</p>
+    <button type="button" class="btn primary wide" onclick={() => (installHelp = null)}>{t('common.gotIt')}</button>
   </Sheet>
 {/if}
 
 {#if gallery}
-  <Sheet onclose={() => (gallery = false)} label="Les cartes">
-    <h2 class="sheet-title">Les cartes</h2>
+  <Sheet onclose={() => (gallery = false)} label={t('home.gallery')}>
+    <h2 class="sheet-title">{t('home.gallery')}</h2>
     <div class="gallery">
       {#each DECK_CARDS as card (card.id)}
         <Card id={card.id} onclick={() => (zoom = card.id)} />
@@ -256,9 +253,9 @@
 {/if}
 
 {#if zoom}
-  <Sheet center onclose={() => (zoom = null)} label="Carte">
+  <Sheet center onclose={() => (zoom = null)} label={t('common.card')}>
     <Card id={zoom} big />
-    <button type="button" class="btn ghost wide close" onclick={() => (zoom = null)}>Fermer</button>
+    <button type="button" class="btn ghost wide close" onclick={() => (zoom = null)}>{t('common.close')}</button>
   </Sheet>
 {/if}
 

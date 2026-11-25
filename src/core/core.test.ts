@@ -3,6 +3,7 @@ import { CARD_BY_ID, CARDS, DECK_CARDS, isDead } from './cards';
 import { actor, apply, canDiscard, canReplay, canSkip, canUndo, cardOptions, choiceStep, mustAct, newGame, normalMoves, playableCards, type GameState, type Throw } from './game';
 import { engineFen, fromFen, isSane, parseSq, toFen } from './position';
 import { legalMoves } from './chess';
+import { msg } from './msg';
 
 const S = parseSq;
 
@@ -380,7 +381,7 @@ describe('Non et Niet', () => {
     expect(g.cardPlayed).toBe(true); // la carte du tour est perdue
     expect(g.hands.w).toHaveLength(1); // son joueur a pioché
     expect(g.discard).toEqual(expect.arrayContaining(['pegase', 'non']));
-    expect(g.log.at(-1)?.text).toBe(`${CARD_BY_ID.non.title} : annule « ${CARD_BY_ID.pegase.title} »`);
+    expect(g.log.at(-1)?.msg).toEqual(msg('log.card', { card: 'non', effect: msg('fx.counter', { card: 'pegase' }) }));
   });
 
   it('laisser passer : la carte s’applique', () => {
@@ -614,7 +615,7 @@ describe('règles temporaires', () => {
     expect(g.discard).not.toContain('cessezLeFeu'); // la carte reste en jeu tant que la règle dure
     g = mv(g, 'a8', 'f8'); // échec au Roi f2
     expect(g.rules).toEqual([]);
-    expect(g.log.at(-1)).toMatchObject({ text: `${CARD_BY_ID.cessezLeFeu.title} prend fin`, notice: true });
+    expect(g.log.at(-1)).toMatchObject({ msg: msg('log.ruleEnds', { card: 'cessezLeFeu' }), notice: true });
     expect(g.discard).toContain('cessezLeFeu');
   });
 
@@ -659,7 +660,7 @@ describe('règles temporaires', () => {
     g = apply(g, { type: 'card', card: 'ratonLaveur', path: [S('d2'), S('b1')] });
     expect(g.pos.board[S('d2')]).toMatchObject({ c: 'w', t: 'n' });
     expect(g.rules).toMatchObject([{ card: 'planque', sq: S('d2') }]);
-    expect(g.log.some((e) => e.text.includes('prend fin'))).toBe(false);
+    expect(g.log.some((e) => e.msg.k === 'log.ruleEnds')).toBe(false);
     // (la carte remplace le coup : c'est aux Noirs) toujours endormi sur sa nouvelle case
     expect(g.active).toBe('b');
     g = mv(g, 'e8', 'f8');
@@ -872,7 +873,7 @@ describe('déroulement du tour', () => {
     g = mv(g, 'h7', 'h1'); // le joueur des Blancs, aux commandes des Noirs, fait mat
     g = apply(g, { type: 'endTurn' });
     expect(g.phase).toBe('over');
-    expect(g.result).toMatchObject({ winner: 'w', reason: 'Échec et mat' }); // c'est sa place qui gagne
+    expect(g.result).toMatchObject({ winner: 'w', reason: 'mate' }); // c'est sa place qui gagne
   });
 
   it('Rebelote : deux cartes de plus, le tour reste ouvert jusque-là', () => {

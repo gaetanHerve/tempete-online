@@ -6,11 +6,12 @@
 // évalue directement. Ajouter une carte = ajouter une entrée dans CARDS.
 
 import type { NormalMove } from './chess';
+import { msg, type Msg } from './msg';
 import { applyMove, legalMoves } from './chess';
 import {
   BISHOP_DIRS,
   KNIGHT_JUMPS,
-  PIECE_NAME,
+  PIECE_LABEL,
   QUEEN_DIRS,
   clonePos,
   fileOf,
@@ -63,12 +64,17 @@ export interface CardContext {
 export interface CardOption {
   /** Cases à toucher, dans l'ordre, pour choisir cette option. */
   path: Sq[];
-  /** Choix final non spatial (promotion, sens de rotation…). */
+  /**
+   * Choix final non spatial (promotion, sens de rotation…). C'est un identifiant, repris tel
+   * quel dans les actions (parties sauvegardées, en ligne) : il ne dépend pas de la langue.
+   * L'interface le met en mots (src/i18n), ou affiche `labelMsg` quand il est fourni.
+   */
   label?: string;
+  labelMsg?: Msg;
   result: Position;
   /** Cases à mettre en évidence (pièces retirées, déplacées…). */
   marks: Sq[];
-  summary: string;
+  summary: Msg;
   /** Choix de suivi (Douane) : renoncer au coup, qui doit être remplacé par un autre. */
   replay?: boolean;
   /** Choix de suivi appliqué dès qu'il est désigné, sans validation (étape réversible). */
@@ -97,18 +103,15 @@ export interface FollowCtx {
 export interface FollowStep {
   chooser: Color;
   options: CardOption[];
-  prompt: string;
+  prompt: Msg;
 }
 
 export interface CardDef {
-  id: string;
   /**
-   * Nom et texte de la carte : protégés par le droit d'auteur, ils ne figurent pas dans le code.
-   * Ils sont fournis à l'exécution par le coffre chiffré (`setCardTexts`). En attendant, le
-   * titre vaut l'identifiant (c'est le cas dans les tests).
+   * Le nom et le texte de la carte, protégés par le droit d'auteur, ne figurent pas dans le
+   * code : ils sont fournis à l'exécution par le coffre chiffré, dans chaque langue (src/i18n).
    */
-  title: string;
-  text: string;
+  id: string;
   timing: Timing;
   /** Cartes plateau : options possibles dans ce contexte. */
   options?: (ctx: CardContext) => CardOption[];
@@ -141,16 +144,10 @@ export interface CardDef {
   turnEffect?: 'pass' | 'swap' | 'rebelote';
 }
 
-/** Définition telle qu'écrite dans le code, sans nom ni texte. */
-type CardSpec = Omit<CardDef, 'title' | 'text'>;
 
 // ---------- helpers ----------
 
 const PROMO_TYPES: PieceType[] = ['q', 'r', 'b', 'n'];
-
-function name(pc: Piece | null): string {
-  return pc ? PIECE_NAME[pc.t] : '?';
-}
 
 function neighbors(s: Sq): Sq[] {
   const out: Sq[] = [];
@@ -189,15 +186,16 @@ function build(
   endTurn: boolean,
   path: Sq[],
   mutate: (b: Board) => void,
-  summary: string,
+  summary: Msg,
   marks: Sq[] = path,
   label?: string,
+  labelMsg?: Msg,
 ): CardOption | null {
   const p = clonePos(ctx.pos);
   mutate(p.board);
   finishCardEffect(p, endTurn);
   if (!isSane(p)) return null;
-  return { path, label, result: p, marks, summary };
+  return { path, label, ...(labelMsg && { labelMsg }), result: p, marks, summary };
 }
 
 function compact(xs: (CardOption | null)[]): CardOption[] {
@@ -285,7 +283,7 @@ function lineOf(m: NormalMove): [number, number, number] {
  * Réaction construite à partir de la position d'avant le coup adverse : `mutate` y joue
  * le coup modifié. C'est ensuite à moi de jouer, et l'adversaire ne doit pas être en échec.
  */
-function fromBefore(ctx: CardContext, path: Sq[], mutate: (b: Board) => void, summary: string, marks: Sq[] = path, label?: string): CardOption | null {
+function fromBefore(ctx: CardContext, path: Sq[], mutate: (b: Board) => void, summary: Msg, marks: Sq[] = path, label?: string): CardOption | null {
   const p = clonePos(ctx.reactTo!.before);
   mutate(p.board);
   finishCardEffect(p, true);
@@ -329,7 +327,7 @@ function simulate(def: Pick<CardDef, 'followUp'>, start: FollowCtx): Position {
 }
 
 /** Option d'ouverture d'une carte à choix : rien ne bouge encore, l'estimation sert au bot. */
-function opening(def: Pick<CardDef, 'followUp'>, ctx: CardContext, summary: string): CardOption[] {
+function opening(def: Pick<CardDef, 'followUp'>, ctx: CardContext, summary: Msg): CardOption[] {
   const start: FollowCtx = { pos: ctx.pos, owner: ctx.me, moved: [], reactTo: ctx.reactTo };
   if (!def.followUp!(start)?.options.length) return [];
   return [{ path: [], result: ctx.pos, marks: [], summary, estimate: simulate(def, start) }];
@@ -344,7 +342,7 @@ function rotateSq(s: Sq, dir: 1 | -1): Sq {
 
 // ---------- définitions ----------
 
-const SPECS: CardSpec[] = [
+export const CARDS: CardDef[] = [
   // ===== À la place de son coup =====
   {
     id: 'amourCourtois',
@@ -356,7 +354,7 @@ const SPECS: CardSpec[] = [
       const out: (CardOption | null)[] = [];
       for (const n of findPieces(b, ctx.me, 'n'))
         for (const t of targets)
-          out.push(build(ctx, true, [n, t], (bb) => move(bb, n, t), `Cavalier ${sqName(n)} → ${sqName(t)}`));
+          out.push(build(ctx, true, [n, t], (bb) => move(bb, n, t), msg('fx.move', { piece: 'n', from: n, to: t })));
       return compact(out);
     },
   },
@@ -378,7 +376,7 @@ const SPECS: CardSpec[] = [
                 bb[mine] = bb[theirs];
                 bb[theirs] = t;
               },
-              `Dames ${sqName(mine)} ⇄ ${sqName(theirs)}`,
+              msg('fx.queensSwap', { a: mine, b: theirs }),
             ),
           );
       return compact(out);
@@ -412,7 +410,7 @@ const SPECS: CardSpec[] = [
                 for (const s of swept) bb[s] = null;
                 move(bb, from, d);
               },
-              `${name(pc)} ${sqName(from)} → ${sqName(d)}` + (swept.length ? `, ${swept.length} pièce(s) balayée(s)` : ''),
+              msg('fx.sweep', { piece: pc.t, from, to: d, count: swept.length }),
               [from, d, ...swept],
             ),
           );
@@ -445,7 +443,7 @@ const SPECS: CardSpec[] = [
                 bb[a.to] = a.promotion ? { t: a.promotion, c: pa.c } : pa;
                 bb[c.to] = c.promotion ? { t: c.promotion, c: pcc.c } : pcc;
               },
-              `${PIECE_NAME[a.piece]}s ${sqName(a.from)}→${sqName(a.to)} et ${sqName(c.from)}→${sqName(c.to)}`,
+              msg('fx.double', { piece: a.piece, a1: a.from, a2: a.to, b1: c.from, b2: c.to }),
             ),
           );
         }
@@ -472,9 +470,9 @@ const SPECS: CardSpec[] = [
                 bb[m.from] = null;
                 bb[m.to] = promo ? { t: promo, c: pc.c } : pc;
               },
-              `${PIECE_NAME[m.piece]} adverse ${sqName(m.from)} → ${sqName(m.to)}` + (promo ? ` (promu en ${PIECE_NAME[promo]})` : ''),
+              msg('fx.move', { piece: m.piece, foe: true, from: m.from, to: m.to, promo }),
               [m.from, m.to],
-              promo ? PIECE_NAME[promo] : undefined,
+              promo ? PIECE_LABEL[promo] : undefined,
             ),
           );
       }
@@ -496,7 +494,7 @@ const SPECS: CardSpec[] = [
           const o = b[to];
           if (to === from || (o && (o.c === ctx.me || o.t === 'k'))) continue;
           out.push(
-            build(ctx, true, [from, to], (bb) => move(bb, from, to), `${name(pc)} ${sqName(from)} → ${sqName(to)}` + (o ? ` (prend ${name(o)})` : '')),
+            build(ctx, true, [from, to], (bb) => move(bb, from, to), msg('fx.move', { piece: pc.t, from, to, take: o?.t })),
           );
         }
       }
@@ -534,9 +532,9 @@ const SPECS: CardSpec[] = [
                   move(bb, from, to);
                   if (k) bb[to] = { t: k, c: ctx.me };
                 },
-                `${name(pc)} ${sqName(from)} → ${sqName(to)}` + (k && k !== pc.t ? `, promu en ${PIECE_NAME[k]}` : ''),
+                msg('fx.move', { piece: pc.t, from, to, promo: k && k !== pc.t ? k : null }),
                 [from, to],
-                k ? PIECE_NAME[k] : undefined,
+                k ? PIECE_LABEL[k] : undefined,
               ),
             );
         }
@@ -553,8 +551,8 @@ const SPECS: CardSpec[] = [
       if (k === null) return [];
       const out: (CardOption | null)[] = [];
       for (const q of findPieces(b, ctx.me, 'q')) {
-        for (const s of neighbors(q)) if (!b[s]) out.push(build(ctx, true, [k, s], (bb) => move(bb, k, s), `Roi ${sqName(k)} → ${sqName(s)}`));
-        for (const s of neighbors(k)) if (!b[s]) out.push(build(ctx, true, [q, s], (bb) => move(bb, q, s), `Dame ${sqName(q)} → ${sqName(s)}`));
+        for (const s of neighbors(q)) if (!b[s]) out.push(build(ctx, true, [k, s], (bb) => move(bb, k, s), msg('fx.move', { piece: 'k', from: k, to: s })));
+        for (const s of neighbors(k)) if (!b[s]) out.push(build(ctx, true, [q, s], (bb) => move(bb, q, s), msg('fx.move', { piece: 'q', from: q, to: s })));
       }
       return compact(out);
     },
@@ -572,7 +570,7 @@ const SPECS: CardSpec[] = [
           if (hit === undefined) continue;
           const o = b[hit]!;
           if (o.c !== opp || o.t === 'k') continue;
-          out.push(build(ctx, true, [from, hit], (bb) => move(bb, from, hit), `Fou adverse ${sqName(from)} prend son propre ${name(o)} en ${sqName(hit)}`));
+          out.push(build(ctx, true, [from, hit], (bb) => move(bb, from, hit), msg('fx.paranoia', { from, victim: o.t, at: hit })));
         }
       return compact(out);
     },
@@ -585,7 +583,7 @@ const SPECS: CardSpec[] = [
       const out: (CardOption | null)[] = [];
       for (const n of findPieces(b, ctx.me, 'n'))
         for (let s = 0; s < 64; s++)
-          if (!b[s] && isLightSquare(s) !== isLightSquare(n)) out.push(build(ctx, true, [n, s], (bb) => move(bb, n, s), `Cavalier ${sqName(n)} → ${sqName(s)}`));
+          if (!b[s] && isLightSquare(s) !== isLightSquare(n)) out.push(build(ctx, true, [n, s], (bb) => move(bb, n, s), msg('fx.move', { piece: 'n', from: n, to: s })));
       return compact(out);
     },
   },
@@ -608,7 +606,7 @@ const SPECS: CardSpec[] = [
                   bb[p] = bb[s];
                   bb[s] = t;
                 },
-                `Pion ${sqName(p)} ⇄ ${name(b[s])} ${sqName(s)}`,
+                msg('fx.raccoon', { from: p, piece: b[s]?.t, to: s }),
               ),
             );
       return compact(out);
@@ -646,9 +644,9 @@ const SPECS: CardSpec[] = [
                   bb[to] = k ? { t: k, c: pawn.c } : pawn;
                   bb[tow] = towed;
                 },
-                `Pion ${sqName(p)} → ${sqName(to)} en remorquant ${name(b[behind])}`,
+                msg('fx.tow', { from: p, to, towed: b[behind]?.t }),
                 [p, to, behind, tow],
-                k ? PIECE_NAME[k] : undefined,
+                k ? PIECE_LABEL[k] : undefined,
               ),
             );
         }
@@ -678,7 +676,7 @@ const SPECS: CardSpec[] = [
               bb[from] = null;
               for (const t of targets) bb[t] = null;
             },
-            `Le Fou ${sqName(from)} éclate et prend ${targets.length} pièces`,
+            msg('fx.psycho', { from, count: targets.length }),
             [from, ...targets],
           ),
         );
@@ -702,7 +700,7 @@ const SPECS: CardSpec[] = [
       for (const s of squares)
         for (const t of lost)
           out.push(
-            build(ctx, true, [s], (bb) => (bb[s] = { t, c: ctx.me }), `${PIECE_NAME[t]} revenu(e) en ${sqName(s)} pour protéger le Roi`, [s], PIECE_NAME[t]),
+            build(ctx, true, [s], (bb) => (bb[s] = { t, c: ctx.me }), msg('fx.guardian', { piece: t, at: s }), [s], PIECE_LABEL[t]),
           );
       return compact(out);
     },
@@ -729,10 +727,10 @@ const SPECS: CardSpec[] = [
           if (!isSane(r)) continue;
           out.push({
             path: [x, m.from, m.to],
-            label: m.promotion ? PIECE_NAME[m.promotion] : undefined,
+            label: m.promotion ? PIECE_LABEL[m.promotion] : undefined,
             result: r,
             marks: [x, m.from, m.to],
-            summary: `${name(traveller)} ${sqName(x)} en voyage, puis ${m.san}`,
+            summary: msg('fx.astral', { piece: traveller.t, at: x, san: m.san }),
           });
         }
       }
@@ -752,7 +750,7 @@ const SPECS: CardSpec[] = [
         if (pc?.t === 'p' && (pc.c === 'b') === isLightSquare(s)) victims.push(s);
       }
       if (!victims.length) return [];
-      return compact([build(ctx, false, [], (bb) => victims.forEach((s) => (bb[s] = null)), `${victims.length} pion(s) retiré(s)`, victims)]);
+      return compact([build(ctx, false, [], (bb) => victims.forEach((s) => (bb[s] = null)), msg('fx.pawnsRemoved', { count: victims.length }), victims)]);
     },
   },
   {
@@ -763,7 +761,7 @@ const SPECS: CardSpec[] = [
       return compact(
         findPieces(b, other(ctx.me), 'p')
           .filter((p) => neighbors(p).every((s) => !b[s]))
-          .map((p) => build(ctx, false, [p], (bb) => (bb[p] = null), `Pion adverse ${sqName(p)} retiré`)),
+          .map((p) => build(ctx, false, [p], (bb) => (bb[p] = null), msg('fx.pawnRemoved', { at: p }))),
       );
     },
   },
@@ -780,7 +778,7 @@ const SPECS: CardSpec[] = [
           const victims = line.filter((s) => b[s] && b[s]!.t !== 'k');
           if (!victims.length) continue;
           out.push(
-            build(ctx, false, [from, line[0]], (bb) => victims.forEach((s) => (bb[s] = null)), `Laser depuis ${sqName(from)} : ${victims.length} pièce(s) désintégrée(s)`, [
+            build(ctx, false, [from, line[0]], (bb) => victims.forEach((s) => (bb[s] = null)), msg('fx.laser', { from, count: victims.length }), [
               from,
               ...victims,
             ]),
@@ -814,7 +812,7 @@ const SPECS: CardSpec[] = [
                 move(bb, a, ad);
                 move(bb, c, cd);
               },
-              `Pions ${sqName(a)}→${sqName(ad)} et ${sqName(c)}→${sqName(cd)}`,
+              msg('fx.double', { piece: 'p', a1: a, a2: ad, b1: c, b2: cd }),
             ),
           );
         }
@@ -833,8 +831,8 @@ const SPECS: CardSpec[] = [
         corners.forEach((s, i) => (bb[corners[(i + dir + 4) % 4]] = saved[i]));
       };
       return compact([
-        build(ctx, false, [], rotate(1), 'Les coins tournent dans le sens horaire', corners, 'Sens horaire'),
-        build(ctx, false, [], rotate(-1), 'Les coins tournent dans le sens anti-horaire', corners, 'Sens anti-horaire'),
+        build(ctx, false, [], rotate(1), msg('fx.cornersCw'), corners, 'Sens horaire'),
+        build(ctx, false, [], rotate(-1), msg('fx.cornersCcw'), corners, 'Sens anti-horaire'),
       ]);
     },
   },
@@ -853,9 +851,10 @@ const SPECS: CardSpec[] = [
             false,
             [],
             (bb) => pawns.forEach((p, i) => (bb[p] = { t: combo[i], c: ctx.me })),
-            `Promotion : ${combo.map((k, i) => `${sqName(pawns[i])} en ${PIECE_NAME[k]}`).join(', ')}`,
+            msg('fx.promotions', { at: pawns, pieces: combo }),
             pawns,
-            combo.map((k, i) => `${PIECE_NAME[k]} (${sqName(pawns[i])})`).join(' + '),
+            combo.map((k, i) => `${PIECE_LABEL[k]} (${sqName(pawns[i])})`).join(' + '),
+            msg('label.promotions', { at: pawns, pieces: combo }),
           ),
         ),
       );
@@ -868,7 +867,7 @@ const SPECS: CardSpec[] = [
       const m = ctx.lastMove;
       if (!m || m.piece !== 'p' || relRank(m.to, ctx.me) !== 5) return [];
       return compact(
-        PROMO_TYPES.map((k) => build(ctx, false, [m.to], (bb) => (bb[m.to] = { t: k, c: ctx.me }), `Pion ${sqName(m.to)} promu en ${PIECE_NAME[k]}`, [m.to], PIECE_NAME[k])),
+        PROMO_TYPES.map((k) => build(ctx, false, [m.to], (bb) => (bb[m.to] = { t: k, c: ctx.me }), msg('fx.promoted', { at: m.to, piece: k }), [m.to], PIECE_LABEL[k])),
       );
     },
   },
@@ -881,7 +880,7 @@ const SPECS: CardSpec[] = [
       if (!m || !m.captured || !pc || pc.t === m.captured) return [];
       const victim = m.captured;
       return compact([
-        build(ctx, false, [m.to], (bb) => (bb[m.to] = { t: victim, c: ctx.me }), `${name(pc)} ${sqName(m.to)} devient ${PIECE_NAME[victim]}`),
+        build(ctx, false, [m.to], (bb) => (bb[m.to] = { t: victim, c: ctx.me }), msg('fx.becomes', { piece: pc.t, at: m.to, into: victim })),
       ]);
     },
   },
@@ -921,7 +920,7 @@ const SPECS: CardSpec[] = [
               move(bb, from, to);
               if (promote) bb[to] = { t: 'q', c: ctx.me };
             },
-            `${name(pc)} ${sqName(from)} → ${sqName(to)}` + (o ? ` (prend ${name(o)})` : ''),
+            msg('fx.move', { piece: pc.t, from, to, take: o?.t }),
           ),
         );
       }
@@ -937,7 +936,7 @@ const SPECS: CardSpec[] = [
       const out: (CardOption | null)[] = [];
       for (const s of [...findPieces(b, ctx.me, 'n'), ...findPieces(b, other(ctx.me), 'n')]) {
         const pc = b[s]!;
-        out.push(build(ctx, false, [s], (bb) => (bb[s] = { t: 'b', c: pc.c }), `Le Cavalier ${pc.c === ctx.me ? '' : 'adverse '}${sqName(s)} devient Fou`));
+        out.push(build(ctx, false, [s], (bb) => (bb[s] = { t: 'b', c: pc.c }), msg('fx.bse', { foe: pc.c !== ctx.me, at: s })));
       }
       return compact(out);
     },
@@ -961,7 +960,7 @@ const SPECS: CardSpec[] = [
         if (!next.length) {
           if (chain.length < 2) return; // il faut au moins une prise supplémentaire
           const final = b.slice();
-          out.push(build(ctx, false, chain, (bb) => bb.splice(0, 64, ...final), `Le pion fait ${chain.length - 1} victime(s) de plus`, chain));
+          out.push(build(ctx, false, chain, (bb) => bb.splice(0, 64, ...final), msg('fx.serial', { count: chain.length - 1 }), chain));
           return;
         }
         for (const t of next) {
@@ -971,7 +970,7 @@ const SPECS: CardSpec[] = [
           // promu, il n'est plus un pion : la frénésie s'arrête là
           if (relRank(t, ctx.me) === 7) {
             const final = bb;
-            out.push(build(ctx, false, [...chain, t], (x) => x.splice(0, 64, ...final), `Le pion fait ${chain.length} victime(s) de plus et devient Dame`, [...chain, t]));
+            out.push(build(ctx, false, [...chain, t], (x) => x.splice(0, 64, ...final), msg('fx.serialQueen', { count: chain.length }), [...chain, t]));
           } else walk(bb, t, [...chain, t]);
         }
       };
@@ -995,8 +994,8 @@ const SPECS: CardSpec[] = [
       };
       const all = [...Array(64).keys()].filter((s) => ctx.pos.board[s]);
       return compact([
-        build(ctx, false, [], turn(1), "L'échiquier tourne dans le sens horaire", all, 'Sens horaire'),
-        build(ctx, false, [], turn(-1), "L'échiquier tourne dans le sens anti-horaire", all, 'Sens anti-horaire'),
+        build(ctx, false, [], turn(1), msg('fx.boardCw'), all, 'Sens horaire'),
+        build(ctx, false, [], turn(-1), msg('fx.boardCcw'), all, 'Sens anti-horaire'),
       ]);
     },
   },
@@ -1011,7 +1010,7 @@ const SPECS: CardSpec[] = [
       const [df, dr, n] = lineOf(m);
       if (n < 2) return [];
       const stop = sq(fileOf(m.from) + df, rankOf(m.from) + dr);
-      return compact([fromBefore(ctx, [], (b) => move(b, m.from, stop), `${PIECE_NAME[m.piece]} adverse arrêté(e) en ${sqName(stop)}`, [m.from, stop])]);
+      return compact([fromBefore(ctx, [], (b) => move(b, m.from, stop), msg('fx.stopped', { piece: m.piece, at: stop }), [m.from, stop])]);
     },
   },
   {
@@ -1021,7 +1020,7 @@ const SPECS: CardSpec[] = [
     options: (ctx) => {
       const r = ctx.reactTo;
       if (!r || !legalMoves(r.before).some((x) => x.uci !== r.move.uci)) return [];
-      return [{ path: [], result: clonePos(r.before), marks: [r.move.from, r.move.to], summary: `Le coup ${r.move.san} est annulé` }];
+      return [{ path: [], result: clonePos(r.before), marks: [r.move.from, r.move.to], summary: msg('fx.moveCancelled', { san: r.move.san }) }];
     },
   },
   {
@@ -1041,7 +1040,7 @@ const SPECS: CardSpec[] = [
         const s = sq(f, rk);
         const o = r.before.board[s];
         if (s === m.to || o?.t === 'k') continue;
-        out.push(fromBefore(ctx, [m.from, s], (b) => move(b, m.from, s), `Cavalier adverse ${sqName(m.from)} → ${sqName(s)}` + (o ? ` (prend ${name(o)})` : ''), [m.from, s]));
+        out.push(fromBefore(ctx, [m.from, s], (b) => move(b, m.from, s), msg('fx.move', { piece: 'n', foe: true, from: m.from, to: s, take: o?.t }), [m.from, s]));
       }
       return compact(out);
     },
@@ -1061,7 +1060,7 @@ const SPECS: CardSpec[] = [
       for (const f of files[t]) {
         const s = sq(f, rank);
         if (ctx.pos.board[s]) continue;
-        out.push(build(ctx, false, [s], (b) => (b[s] = { t, c: ctx.me }), `${PIECE_NAME[t]} réincarné(e) en ${sqName(s)}`));
+        out.push(build(ctx, false, [s], (b) => (b[s] = { t, c: ctx.me }), msg('fx.reincarnated', { piece: t, at: s })));
       }
       return compact(out);
     },
@@ -1073,7 +1072,7 @@ const SPECS: CardSpec[] = [
     options: (ctx) => {
       const m = ctx.reactTo?.move;
       if (!m?.captured || m.piece === 'k') return [];
-      return compact([fromBefore(ctx, [], (b) => (b[m.from] = null), `Duel : ${PIECE_NAME[m.piece]} contre ${PIECE_NAME[m.captured]}`, [m.from, m.to])]);
+      return compact([fromBefore(ctx, [], (b) => (b[m.from] = null), msg('fx.duel', { attacker: m.piece, defender: m.captured }), [m.from, m.to])]);
     },
   },
   {
@@ -1085,7 +1084,7 @@ const SPECS: CardSpec[] = [
       const k = kingSq(b, ctx.me);
       if (!ctx.reactTo || k === null || !inCheck(b, ctx.me)) return [];
       return compact(
-        attackersOf(b, k, other(ctx.me)).map((s) => build(ctx, false, [s], (bb) => (bb[s] = { t: bb[s]!.t, c: ctx.me }), `${name(b[s])} ${sqName(s)} passe dans votre camp`)),
+        attackersOf(b, k, other(ctx.me)).map((s) => build(ctx, false, [s], (bb) => (bb[s] = { t: bb[s]!.t, c: ctx.me }), msg('fx.defects', { piece: b[s]?.t, at: s }))),
       );
     },
   },
@@ -1099,7 +1098,7 @@ const SPECS: CardSpec[] = [
       const [df, dr] = lineOf(m);
       const stop = sq(fileOf(m.to) - df, rankOf(m.to) - dr);
       return compact([
-        fromBefore(ctx, [], (b) => move(b, m.from, stop), stop === m.from ? `${PIECE_NAME[m.piece]} adverse reste en ${sqName(stop)}` : `${PIECE_NAME[m.piece]} adverse arrêté(e) en ${sqName(stop)}`, [m.from, stop, m.to]),
+        fromBefore(ctx, [], (b) => move(b, m.from, stop), msg(stop === m.from ? 'fx.stays' : 'fx.stopped', { piece: m.piece, at: stop }), [m.from, stop, m.to]),
       ]);
     },
   },
@@ -1118,7 +1117,7 @@ const SPECS: CardSpec[] = [
         const pc = b[m.from];
         b[m.from] = null;
         if (dest !== null) b[dest] = pc;
-      }, dest === null ? `${PIECE_NAME[m.piece]} adverse tombe de l'échiquier` : `${PIECE_NAME[m.piece]} adverse finit en ${sqName(dest)}` + (victim !== null ? ` (prend ${name(r.before.board[victim])})` : ''), [m.from, m.to, ...(dest !== null ? [dest] : [])])]);
+      }, dest === null ? msg('fx.falls', { piece: m.piece }) : msg('fx.endsAt', { piece: m.piece, at: dest, take: victim !== null ? r.before.board[victim]?.t : null }), [m.from, m.to, ...(dest !== null ? [dest] : [])])]);
     },
   },
   {
@@ -1138,7 +1137,7 @@ const SPECS: CardSpec[] = [
         const pc = b[m.from];
         b[m.from] = null;
         if (dest !== null) b[dest] = pc;
-      }, dest === null ? `${PIECE_NAME[m.piece]} adverse glisse hors de l'échiquier` : `${PIECE_NAME[m.piece]} adverse glisse jusqu'en ${sqName(dest)}` + (victim !== null ? ` (prend ${name(r.before.board[victim])})` : ''), [m.from, m.to, ...(dest !== null ? [dest] : [])])]);
+      }, dest === null ? msg('fx.slidesOff', { piece: m.piece }) : msg('fx.slidesTo', { piece: m.piece, at: dest, take: victim !== null ? r.before.board[victim]?.t : null }), [m.from, m.to, ...(dest !== null ? [dest] : [])])]);
     },
   },
   // ===== Règles temporaires =====
@@ -1146,20 +1145,20 @@ const SPECS: CardSpec[] = [
     id: 'provocation',
     timing: 'after',
     rule: 'nextTurn',
-    options: (ctx) => (inCheck(ctx.pos.board, other(ctx.me)) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: "l'adversaire doit prendre une pièce, ou passer son tour" }]),
+    options: (ctx) => (inCheck(ctx.pos.board, other(ctx.me)) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.provocation') }]),
   },
   {
     id: 'cessezLeFeu',
     timing: 'after',
     rule: 'lasting',
-    options: (ctx) => (anyCheck(ctx.pos) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: 'plus aucune prise tant qu’aucun Roi n’est en échec' }]),
+    options: (ctx) => (anyCheck(ctx.pos) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.ceasefire') }]),
   },
   {
     id: 'fringale',
     timing: 'after',
     rule: 'lasting',
     // (en phase « après », c'est déjà à l'adversaire de jouer : il doit pouvoir prendre)
-    options: (ctx) => (legalMoves(ctx.pos).some((m) => m.captured) ? [{ path: [], result: ctx.pos, marks: [], summary: 'chacun doit prendre à chaque coup' }] : []),
+    options: (ctx) => (legalMoves(ctx.pos).some((m) => m.captured) ? [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.fringale') }] : []),
   },
   {
     id: 'planque',
@@ -1168,14 +1167,14 @@ const SPECS: CardSpec[] = [
     options: (ctx) => {
       const b = ctx.pos.board;
       if (inCheck(b, other(ctx.me))) return [];
-      return findPieces(b, other(ctx.me)).map((s) => ({ path: [s], result: ctx.pos, marks: [s], summary: `${name(b[s])} adverse ${sqName(s)} endormi(e)` }));
+      return findPieces(b, other(ctx.me)).map((s) => ({ path: [s], result: ctx.pos, marks: [s], summary: msg('fx.asleep', { piece: b[s]?.t, at: s }) }));
     },
   },
   {
     id: 'origines',
     timing: 'after',
     rule: 'lasting',
-    options: (ctx) => (anyCheck(ctx.pos) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: 'plus de cartes tant qu’aucun Roi n’est en échec' }]),
+    options: (ctx) => (anyCheck(ctx.pos) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.noCards') }]),
   },
   {
     id: 'voyance',
@@ -1186,7 +1185,7 @@ const SPECS: CardSpec[] = [
       if (inCheck(ctx.pos.board, other(ctx.me))) return [];
       // (pas de surlignage : le choix doit rester secret pour l'adversaire)
       const from = new Set(legalMoves(ctx.pos).map((m) => m.from));
-      return [...from].map((s) => ({ path: [s], result: ctx.pos, marks: [], summary: 'une pièce adverse est désignée en secret' }));
+      return [...from].map((s) => ({ path: [s], result: ctx.pos, marks: [], summary: msg('fx.secret') }));
     },
   },
   // ===== Déroulement du tour =====
@@ -1195,19 +1194,19 @@ const SPECS: CardSpec[] = [
     timing: 'before',
     turnEffect: 'pass',
     // (passer son tour en échec laisserait son Roi en prise)
-    options: (ctx) => (inCheck(ctx.pos.board, ctx.me) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: 'passe son tour et garde la carte en réserve' }]),
+    options: (ctx) => (inCheck(ctx.pos.board, ctx.me) ? [] : [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.pass') }]),
   },
   {
     id: 'doubleJeu',
     timing: 'after',
     turnEffect: 'swap',
-    options: (ctx) => [{ path: [], result: ctx.pos, marks: [], summary: 'les joueurs échangent leurs places pour trois tours' }],
+    options: (ctx) => [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.swap') }],
   },
   {
     id: 'rebeloteEtDixDeDer',
     timing: 'anytime',
     turnEffect: 'rebelote',
-    options: (ctx) => [{ path: [], result: ctx.pos, marks: [], summary: 'deux cartes de plus ce tour-ci' }],
+    options: (ctx) => [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.rebelote') }],
   },
   // ===== Cartes à choix successifs =====
   zombiesDef(),
@@ -1216,10 +1215,10 @@ const SPECS: CardSpec[] = [
   douaneDef(),
   // ===== Annulations =====
   ...(['non', 'niet'] as const).map(
-    (id): CardSpec => ({
+    (id): CardDef => ({
       id,
       timing: 'counter',
-      options: (ctx) => (ctx.counterTo ? [{ path: [], result: ctx.pos, marks: [], summary: `annule « ${CARD_BY_ID[ctx.counterTo].title} »` }] : []),
+      options: (ctx) => (ctx.counterTo ? [{ path: [], result: ctx.pos, marks: [], summary: msg('fx.counter', { card: ctx.counterTo }) }] : []),
     }),
   ),
   // ===== Cartes de main =====
@@ -1237,11 +1236,11 @@ const SPECS: CardSpec[] = [
 
 // ---------- définitions des cartes à choix ----------
 
-function zombiesDef(): CardSpec {
-  const def: CardSpec = {
+function zombiesDef(): CardDef {
+  const def: CardDef = {
     id: 'zombies',
     timing: 'before',
-    options: (ctx) => opening(def, ctx, 'Les pions perdus sortent de terre'),
+    options: (ctx) => opening(def, ctx, msg('fx.zombies')),
     followUp: (ctx) => {
       const opp = other(ctx.owner);
       const placed = (c: Color) => ctx.moved.filter((s) => ctx.pos.board[s]?.c === c).length;
@@ -1257,7 +1256,7 @@ function zombiesDef(): CardSpec {
           normalizeCastling(p);
           // le joueur de la carte jouera ensuite : son adversaire ne doit pas être en échec
           if (!isSane(p)) continue;
-          out.push({ path: [s], result: p, marks: [s], summary: `pion ${c === ctx.owner ? '' : 'adverse '}revenu en ${sqName(s)}` });
+          out.push({ path: [s], result: p, marks: [s], summary: msg('fx.pawnBack', { foe: c !== ctx.owner, at: s }) });
         }
         return out;
       };
@@ -1266,7 +1265,7 @@ function zombiesDef(): CardSpec {
       for (const c of order) {
         if (placed(c) >= 2) continue;
         const options = placements(c);
-        if (options.length) return { chooser: c, options, prompt: 'Touchez la case où revient votre pion' };
+        if (options.length) return { chooser: c, options, prompt: msg('prompt.zombies') };
       }
       return null;
     },
@@ -1274,11 +1273,11 @@ function zombiesDef(): CardSpec {
   return def;
 }
 
-function electrochocDef(): CardSpec {
-  const def: CardSpec = {
+function electrochocDef(): CardDef {
+  const def: CardDef = {
     id: 'electrochoc',
     timing: 'after',
-    options: (ctx) => opening(def, ctx, 'Les Fous reçoivent une décharge'),
+    options: (ctx) => opening(def, ctx, msg('fx.electro')),
     followUp: (ctx) => {
       const steps = (c: Color): CardOption[] => {
         const out: CardOption[] = [];
@@ -1294,14 +1293,14 @@ function electrochocDef(): CardSpec {
             normalizeCastling(p);
             // c'est ensuite à l'adversaire de la carte : le Roi de son joueur ne doit pas être en échec
             if (!isSane(p)) continue;
-            out.push({ path: [s, t], result: p, marks: [s, t], summary: `Fou ${sqName(s)} → ${sqName(t)}` });
+            out.push({ path: [s, t], result: p, marks: [s, t], summary: msg('fx.move', { piece: 'b', from: s, to: t }) });
           }
         }
         return out;
       };
       for (const c of [other(ctx.owner), ctx.owner]) {
         const options = steps(c);
-        if (options.length) return { chooser: c, options, prompt: 'Déplacez un de vos Fous d’une case (sans diagonale)' };
+        if (options.length) return { chooser: c, options, prompt: msg('prompt.electro') };
       }
       return null;
     },
@@ -1335,9 +1334,9 @@ function safeArrangementExists(pos: Position, me: Color, row: Sq[]): boolean {
   return place(0);
 }
 
-function roqueEtRolleDef(): CardSpec {
+function roqueEtRolleDef(): CardDef {
   const firstRank = (c: Color) => [...Array(8).keys()].map((f) => sq(f, c === 'w' ? 0 : 7));
-  const def: CardSpec = {
+  const def: CardDef = {
     id: 'roqueEtRolle',
     timing: 'replace',
     options: (ctx) => {
@@ -1347,7 +1346,7 @@ function roqueEtRolleDef(): CardSpec {
       // jouable même en échec, pourvu qu'un arrangement protège le Roi (au joueur de le trouver)
       if (inCheck(b, ctx.me) && !safeArrangementExists(ctx.pos, ctx.me, row)) return [];
       // pas d'estimation : l'ordinateur ne sait pas juger un réarrangement, il ne joue pas cette carte
-      return [{ path: [], result: ctx.pos, marks: row, summary: 'Réarrangez votre première rangée' }];
+      return [{ path: [], result: ctx.pos, marks: row, summary: msg('fx.rearrange') }];
     },
     followUp: (ctx) => {
       if (ctx.pos.turn !== ctx.owner) return null; // « Terminer » a été choisi
@@ -1365,28 +1364,28 @@ function roqueEtRolleDef(): CardSpec {
             path: [a, t],
             result: p,
             marks: [a, t],
-            summary: b[t] ? `${name(b[a])} ${sqName(a)} ⇄ ${name(b[t])} ${sqName(t)}` : `${name(b[a])} ${sqName(a)} → ${sqName(t)}`,
+            summary: b[t] ? msg('fx.swapPieces', { pa: b[a]?.t, a, pb: b[t]?.t, b: t }) : msg('fx.move', { piece: b[a]?.t, from: a, to: t }),
             instant: true,
           });
         }
       }
       const done = clonePos(ctx.pos);
       finishCardEffect(done, true);
-      if (isSane(done)) options.push({ path: [], label: 'Terminer', result: done, marks: row, summary: 'première rangée réarrangée' });
+      if (isSane(done)) options.push({ path: [], label: 'Terminer', result: done, marks: row, summary: msg('fx.rowDone') });
       else if (ctx.start) {
         // Roi en échec ici : tout remettre en place pour repartir du début, ou renoncer à la carte
         if (toFen(ctx.start) !== toFen(ctx.pos))
-          options.push({ path: [], label: 'Annuler et réessayer', result: clonePos(ctx.start), marks: row, summary: 'première rangée remise en place' });
-        options.push({ path: [], label: 'Renoncer', result: clonePos(ctx.start), marks: row, summary: 'renonce à réarranger sa première rangée', replay: true });
+          options.push({ path: [], label: 'Annuler et réessayer', result: clonePos(ctx.start), marks: row, summary: msg('fx.rowReset') });
+        options.push({ path: [], label: 'Renoncer', result: clonePos(ctx.start), marks: row, summary: msg('fx.rowGiveUp'), replay: true });
       }
-      return { chooser: ctx.owner, options, prompt: 'Touchez deux cases de votre première rangée pour les échanger, puis « Terminer »' };
+      return { chooser: ctx.owner, options, prompt: msg('prompt.row') };
     },
   };
   return def;
 }
 
-function douaneDef(): CardSpec {
-  const def: CardSpec = {
+function douaneDef(): CardDef {
+  const def: CardDef = {
     id: 'douane',
     timing: 'reaction',
     reaction: 'keep',
@@ -1394,7 +1393,7 @@ function douaneDef(): CardSpec {
       const m = ctx.reactTo?.move;
       const mover = other(ctx.me);
       if (!m || !(relRank(m.from, mover) <= 3 && relRank(m.to, mover) >= 4)) return [];
-      return opening(def, ctx, 'Douane : payez un pion ou renoncez');
+      return opening(def, ctx, msg('fx.douane'));
     },
     followUp: (ctx) => {
       const r = ctx.reactTo;
@@ -1404,73 +1403,20 @@ function douaneDef(): CardSpec {
       for (const s of findPieces(ctx.pos.board, mover, 'p')) {
         const p = clonePos(ctx.pos);
         p.board[s] = null;
-        if (isSane(p)) options.push({ path: [s], result: p, marks: [s], summary: `paie la douane avec le pion ${sqName(s)}` });
+        if (isSane(p)) options.push({ path: [s], result: p, marks: [s], summary: msg('fx.douanePay', { at: s }) });
       }
       if (legalMoves(r.before).some((x) => x.uci !== r.move.uci))
-        options.push({ path: [], label: 'Renoncer au coup', result: clonePos(r.before), marks: [r.move.from, r.move.to], summary: `renonce à ${r.move.san}`, replay: true });
-      return options.length ? { chooser: mover, options, prompt: 'Touchez le pion qui paie la douane, ou renoncez à votre coup' } : null;
+        options.push({ path: [], label: 'Renoncer au coup', result: clonePos(r.before), marks: [r.move.from, r.move.to], summary: msg('fx.giveUp', { san: r.move.san }), replay: true });
+      return options.length ? { chooser: mover, options, prompt: msg('prompt.douane') } : null;
     },
   };
   return def;
 }
 
-export const CARDS: CardDef[] = SPECS.map((s) => ({ ...s, title: s.id, text: '' }));
-
 export const CARD_BY_ID: Record<string, CardDef> = Object.fromEntries(CARDS.map((c) => [c.id, c]));
-
-export type CardTexts = Record<string, { title: string; text: string }>;
-
-/** Renseigne les noms et textes des cartes, une fois le coffre déchiffré. */
-export function setCardTexts(texts: CardTexts): void {
-  for (const c of CARDS) {
-    const t = texts[c.id];
-    if (t) Object.assign(c, { title: t.title, text: t.text });
-  }
-}
-
-export const TIMING_LABEL: Record<Timing, string> = {
-  before: 'Avant votre coup',
-  replace: 'À la place de votre coup',
-  after: 'Après votre coup',
-  anytime: 'À tout moment de votre tour',
-  reaction: 'Après le coup adverse',
-  counter: 'Après une carte adverse',
-};
 
 /** Étape (position dans `path`) où l'on choisit une direction à partir de la case précédente : flèches sur l'échiquier. */
 export const DIRECTION_STEP: Record<string, number> = { laser: 1, chasseNeige: 1 };
-
-/** Consignes affichées à chaque étape de sélection (indexées par position dans `path`). */
-export const STEP_HINTS: Record<string, string[]> = {
-  amourCourtois: ['Touchez le Cavalier à déplacer', 'Touchez une case libre près de votre Dame'],
-  bonnesCopines: ['Touchez votre Dame', 'Touchez la Dame adverse'],
-  chasseNeige: ['Touchez la Tour, le Fou ou la Dame', 'Choisissez la direction'],
-  coupDouble: ['Touchez la première pièce', 'Touchez sa destination', 'Touchez la seconde pièce (même type)', 'Touchez sa destination'],
-  elementIncontrole: ['Touchez une pièce adverse', 'Touchez sa destination'],
-  maison: ['Touchez la pièce à ramener', 'Touchez sa case de départ'],
-  modestie: ['Touchez la pièce à déplacer comme un pion', 'Touchez sa destination'],
-  ohDarling: ['Touchez votre Roi ou votre Dame', 'Touchez la case d’arrivée'],
-  paranoia: ['Touchez un Fou adverse', 'Touchez la pièce qu’il doit prendre'],
-  pegase: ['Touchez le Cavalier', 'Touchez n’importe quelle case libre en surbrillance'],
-  ratonLaveur: ['Touchez le pion', 'Touchez la pièce à permuter'],
-  remorque: ['Touchez le pion qui remorque', 'Touchez sa destination'],
-  psychopathe: ['Touchez le Fou psychopathe'],
-  grosseDeprime: ['Touchez le pion déprimé'],
-  laser: ['Touchez la pièce qui tire', 'Touchez la direction du rayon'],
-  majorettes: ['Touchez le premier pion', 'Touchez sa destination', 'Touchez le second pion', 'Touchez sa destination'],
-  promotionAuMerite: ['Touchez le pion'],
-  vampirisme: ['Touchez la pièce vampire'],
-  pasDeDeux: ['Touchez la pièce qui imite le mouvement', 'Touchez sa destination'],
-  angeGardien: ['Touchez la case où intercaler la pièce'],
-  voyageAstral: ['Touchez la pièce qui part en voyage', 'Touchez la pièce à jouer', 'Touchez sa destination'],
-  encephalopathieSpongiformeEquine: ['Touchez le Cavalier qui devient Fou'],
-  ruade: ['Le coup est annulé : touchez le Cavalier adverse', 'Touchez la case où vous l’envoyez'],
-  dalaiLama: ['Touchez la case où la pièce se réincarne'],
-  toiAussiMonFils: ['Touchez la pièce qui vous met en échec'],
-  planque: ['Touchez la pièce adverse à endormir'],
-  voyance: ['Touchez la pièce que l’adversaire va jouer, selon vous (il ne le saura pas)'],
-  serialKiller: ['Touchez votre pion', 'Touchez sa prochaine victime', 'Touchez la victime suivante', 'Touchez la victime suivante', 'Touchez la victime suivante'],
-};
 
 // ---------- défausse ----------
 

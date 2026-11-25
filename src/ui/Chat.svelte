@@ -4,14 +4,13 @@
   import { tick } from 'svelte';
   import { controller as c } from '../lib/controller.svelte';
   import { CHAT_MAX } from '../lib/online';
+  import { quickPhrases, shortTime, t } from '../i18n/index.svelte';
 
   interface Props {
     /** Grand écran : affiché en permanence à côté de l'échiquier, plutôt que dans un panneau. */
     docked?: boolean;
   }
   let { docked = false }: Props = $props();
-
-  const QUICK = ['Bien joué !', 'Aïe…', 'Je réfléchis', 'Bien vu', 'Oups', 'Bonne partie !', '👍', '😄', '😮', '😅', '🔥', '🤝'];
 
   let draft = $state('');
   let sending = $state(false);
@@ -31,13 +30,12 @@
     if (ok && text === draft) draft = '';
   }
 
-  const time = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 </script>
 
 {#if docked}
-  <span class="label">Chat</span>
+  <span class="label">{t('chat.title')}</span>
 {:else}
-  <h2 class="sheet-title">Chat</h2>
+  <h2 class="sheet-title">{t('chat.title')}</h2>
 {/if}
 
 {#if c.chat.length}
@@ -45,16 +43,16 @@
     {#each c.chat as m (m.id)}
       <li class:mine={m.mine}>
         <span class="text">{m.text}</span>
-        <span class="time">{m.mine ? 'Vous' : 'Adversaire'} · {time(m.t)}</span>
+        <span class="time">{m.mine ? t('chat.you') : t('chat.opp')} · {shortTime(m.t)}</span>
       </li>
     {/each}
   </ol>
 {:else}
-  <p class="empty">Aucun message pour l'instant. Dites bonjour !</p>
+  <p class="empty">{t('chat.empty')}</p>
 {/if}
 
-<div class="quick" class:docked aria-label="Phrases rapides">
-  {#each QUICK as q (q)}
+<div class="quick" class:docked aria-label={t('chat.quick')}>
+  {#each quickPhrases() as q (q)}
     <button type="button" class="chip" class:emoji={!/\p{L}/u.test(q)} disabled={sending} onclick={() => send(q)}>{q}</button>
   {/each}
 </div>
@@ -66,8 +64,8 @@
     void send(draft);
   }}
 >
-  <input type="text" bind:value={draft} maxlength={CHAT_MAX} placeholder="Votre message…" aria-label="Votre message" enterkeyhint="send" autocomplete="off" />
-  <button type="submit" class="btn primary" disabled={sending || !draft.trim()}>Envoyer</button>
+  <input type="text" bind:value={draft} maxlength={CHAT_MAX} placeholder={t('chat.placeholder')} aria-label={t('chat.placeholder')} enterkeyhint="send" autocomplete="off" />
+  <button type="submit" class="btn primary" disabled={sending || !draft.trim()}>{t('chat.send')}</button>
 </form>
 
 <style>

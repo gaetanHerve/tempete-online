@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CARDS } from '../core/cards';
 
@@ -19,6 +19,9 @@ describe('coffre des cartes', () => {
 
   // données protégées présentes seulement sur le poste de l'auteur (jamais dans le dépôt public)
   const priv = existsSync('private/cards.json');
+  // traductions des noms et textes (private/cards.<lang>.json), protégées au même titre
+  const translations = priv ? readdirSync('private').filter((f) => /^cards\.[a-z]{2}\.json$/.test(f)) : [];
+  const read = (f: string): Record<string, { title: string; text: string }> => JSON.parse(readFileSync(`private/${f}`, 'utf8'));
 
   it.skipIf(!priv)('les données protégées couvrent chaque carte', () => {
     const texts = JSON.parse(readFileSync('private/cards.json', 'utf8'));
@@ -28,10 +31,18 @@ describe('coffre des cartes', () => {
     }
   });
 
+  it.skipIf(!translations.length)('les traductions couvrent chaque carte', () => {
+    for (const f of translations) {
+      const texts = read(f);
+      for (const c of CARDS) expect(texts[c.id]?.title && texts[c.id]?.text, `${f} : textes de ${c.id}`).toBeTruthy();
+      expect(Object.keys(texts).filter((id) => !CARDS.some((c) => c.id === id)), `${f} : identifiants inconnus`).toEqual([]);
+    }
+  });
+
   it.skipIf(!priv)('aucun texte de carte ni illustration dans les fichiers suivis par git', () => {
     const tracked = execSync('git ls-files -z', { encoding: 'utf8' }).split('\0').filter(Boolean);
     expect(tracked.filter((f) => f.startsWith('private/') || /\.webp$/i.test(f))).toEqual([]);
-    const texts: { text: string }[] = Object.values(JSON.parse(readFileSync('private/cards.json', 'utf8')));
+    const texts = ['cards.json', ...translations].flatMap((f) => Object.values(read(f)));
     // un fragment suffit à repérer une copie, même légèrement retouchée
     const fragments = texts.map((t) => t.text.slice(0, 40));
     for (const f of tracked.filter((f) => /\.(ts|svelte|js|mjs|md|json|txt|html|css)$/.test(f) && existsSync(f))) {

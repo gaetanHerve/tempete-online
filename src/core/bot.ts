@@ -10,8 +10,6 @@ import { PIECE_VALUE, engineFen, isAttacked, inCheck, materialBalance, other, sq
 
 export interface BotLevel {
   id: string;
-  label: string;
-  description: string;
   /** Skill Level Stockfish (0..20) et profondeur pour le coup normal. */
   skill: number;
   depth: number;
@@ -47,8 +45,6 @@ export interface BotLevel {
 export const BOT_LEVELS: BotLevel[] = [
   {
     id: 'facile',
-    label: 'Facile',
-    description: 'Joue vite, voit peu, oublie parfois ses cartes',
     skill: 1,
     depth: 5,
     cardDepth: 4,
@@ -65,8 +61,6 @@ export const BOT_LEVELS: BotLevel[] = [
   },
   {
     id: 'moyen',
-    label: 'Moyen',
-    description: 'Un joueur de club du dimanche',
     skill: 8,
     depth: 9,
     cardDepth: 7,
@@ -83,8 +77,6 @@ export const BOT_LEVELS: BotLevel[] = [
   },
   {
     id: 'fort',
-    label: 'Redoutable',
-    description: 'Stockfish sans pitié, et rusé avec ses cartes',
     skill: 20,
     depth: 13,
     cardDepth: 9,

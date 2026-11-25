@@ -19,6 +19,7 @@
 import type { Database } from 'firebase/database';
 import type { Action } from '../core/game';
 import type { Color } from '../core/position';
+import { t } from '../i18n/index.svelte';
 import { FIREBASE_CONFIG } from './firebase-config';
 import { vaultKey } from './vault';
 
@@ -81,7 +82,7 @@ async function hmacHex(key: Uint8Array, label: string): Promise<string> {
 function connect(): Promise<Session> {
   session ??= (async () => {
     const key = vaultKey();
-    if (!key) throw new OnlineError('Le jeu doit d’abord être déverrouillé.');
+    if (!key) throw new OnlineError(t('online.locked'));
     const [{ initializeApp }, auth, fb] = await Promise.all([import('firebase/app'), import('firebase/auth'), import('firebase/database')]);
     const app = initializeApp(FIREBASE_CONFIG);
     const a = auth.getAuth(app);
@@ -115,8 +116,8 @@ function netError(e: unknown): never {
   if (e instanceof OnlineError) throw e;
   console.error(e);
   const msg = e instanceof Error ? e.message : '';
-  if (/permission/i.test(msg)) throw new OnlineError('Accès refusé par le serveur de parties.');
-  throw new OnlineError('Connexion au serveur de parties impossible. Vérifiez le réseau et réessayez.');
+  if (/permission/i.test(msg)) throw new OnlineError(t('online.denied'));
+  throw new OnlineError(t('online.unreachable'));
 }
 
 /** Crée une partie : renvoie son code. L'hôte y joue `hostColor`. */
@@ -129,7 +130,7 @@ export async function createRoom(hostColor: Color, seed: number, build: string):
       const res = await fb.runTransaction(fb.ref(db, `${base}/${code}/meta`), (cur) => (cur === null ? meta : undefined), { applyLocally: false });
       if (res.committed) return code;
     }
-    throw new OnlineError('Impossible de créer la partie, réessayez.');
+    throw new OnlineError(t('online.createFailed'));
   } catch (e) {
     netError(e);
   }
@@ -141,13 +142,13 @@ export async function joinRoom(code: string): Promise<{ meta: RoomMeta; seat: Co
     const { db, fb, uid, base } = await connect();
     const snap = await fb.get(fb.ref(db, `${base}/${code}/meta`));
     const meta = snap.val() as RoomMeta | null;
-    if (!meta) throw new OnlineError(`Aucune partie ${code}. Vérifiez le code.`);
+    if (!meta) throw new OnlineError(t('online.noRoom', { code }));
     const guestColor: Color = meta.hostColor === 'w' ? 'b' : 'w';
     if (meta.host === uid) return { meta, seat: meta.hostColor };
     if (meta.guest === uid) return { meta, seat: guestColor };
-    if (meta.guest) throw new OnlineError(`La partie ${code} a déjà ses deux joueurs.`);
+    if (meta.guest) throw new OnlineError(t('online.full', { code }));
     const res = await fb.runTransaction(fb.ref(db, `${base}/${code}/meta/guest`), (cur) => (cur === null || cur === uid ? uid : undefined), { applyLocally: false });
-    if (!res.committed) throw new OnlineError(`La partie ${code} a déjà ses deux joueurs.`);
+    if (!res.committed) throw new OnlineError(t('online.full', { code }));
     return { meta: { ...meta, guest: uid }, seat: guestColor };
   } catch (e) {
     netError(e);

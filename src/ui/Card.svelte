@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { CARD_BY_ID, TIMING_LABEL } from '../core/cards';
+  import { CARD_BY_ID } from '../core/cards';
+  import { cardText, cardTitle, t } from '../i18n/index.svelte';
   import { cardImage } from '../lib/vault';
 
   interface Props {
@@ -15,7 +16,7 @@
 </script>
 
 {#if back || !def}
-  <div class="card back" class:big aria-label="Carte face cachée">
+  <div class="card back" class:big aria-label={t('card.faceDown')}>
     <img src={cardImage('card-back')} alt="" draggable="false" />
   </div>
 {:else}
@@ -29,16 +30,16 @@
     class:playable
     class:dim
     {onclick}
-    aria-label={def.title}
+    aria-label={cardTitle(def.id)}
     role={onclick ? undefined : 'img'}
   >
     <div class="art">
       <img src={cardImage(def.id)} alt="" draggable="false" loading="lazy" />
     </div>
-    <div class="title">{def.title}</div>
+    <div class="title">{cardTitle(def.id)}</div>
     {#if big}
-      <div class="timing timing-{def.timing}">{TIMING_LABEL[def.timing]}</div>
-      <p class="text">{def.text}</p>
+      <div class="timing timing-{def.timing}">{t(`timing.${def.timing}`)}</div>
+      <p class="text">{cardText(def.id)}</p>
     {/if}
   </svelte:element>
 {/if}

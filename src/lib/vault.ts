@@ -1,11 +1,12 @@
-// Coffre des données protégées (noms, textes et illustrations des cartes).
+// Coffre des données protégées (noms, textes et illustrations des cartes, dans chaque langue).
 //
 // Le dépôt public ne contient que leur version chiffrée (public/vault.bin, construit par
 // scripts/vault.mjs). Le mot de passe, transmis à part, est la clé de déchiffrement :
 // sans lui, les données ne sont pas lisibles, même en téléchargeant le fichier.
 // Une fois le coffre ouvert, la clé dérivée est mémorisée sur l'appareil.
 
-import { setCardTexts, type CardTexts } from '../core/cards';
+import { LOCALES, type CardTexts, type Locale } from '../i18n/format';
+import { setCardTexts } from '../i18n/index.svelte';
 
 const KEY_STORAGE = 'tempete2.cle';
 const MAGIC = 'TPV1';
@@ -58,8 +59,8 @@ async function open(key: CryptoKey): Promise<boolean> {
     return false;
   }
   const len = new DataView(plain.buffer).getUint32(0, true);
-  const data: { texts: CardTexts; images: Record<string, [number, number]> } = JSON.parse(new TextDecoder().decode(plain.subarray(4, 4 + len)));
-  setCardTexts(data.texts);
+  const data: { texts: Texts; images: Record<string, [number, number]> } = JSON.parse(new TextDecoder().decode(plain.subarray(4, 4 + len)));
+  setCardTexts(byLocale(data.texts));
   const base = 4 + len;
   for (const url of Object.values(images)) URL.revokeObjectURL(url);
   images = Object.fromEntries(
@@ -67,6 +68,14 @@ async function open(key: CryptoKey): Promise<boolean> {
   );
   rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
   return true;
+}
+
+/** Textes des cartes : par langue (`{ fr: {…}, en: {…} }`), ou en français seul (anciens coffres). */
+type Texts = CardTexts | Partial<Record<Locale, CardTexts>>;
+
+export function byLocale(texts: Texts): Partial<Record<Locale, CardTexts>> {
+  const keys = Object.keys(texts);
+  return keys.length && keys.every((k) => (LOCALES as string[]).includes(k)) ? (texts as Partial<Record<Locale, CardTexts>>) : { fr: texts as CardTexts };
 }
 
 const importRaw = (raw: Uint8Array<ArrayBuffer>) => crypto.subtle.importKey('raw', raw, 'AES-GCM', true, ['decrypt']);
